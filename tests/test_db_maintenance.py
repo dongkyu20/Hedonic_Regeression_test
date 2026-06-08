@@ -2,6 +2,7 @@ import unittest
 
 from hedonic_house_price.db_maintenance import (
     CLEAR_DATA_TABLES,
+    PROPERTY_CONDITION_DERIVED_SQL,
     clear_transaction_data,
     refresh_transaction_derived_snapshots,
 )
@@ -66,6 +67,10 @@ class DbMaintenanceTests(unittest.TestCase):
         self.assertEqual(result["property_condition_rows"], 7)
         self.assertEqual(result["urban_competitiveness_rows"], 7)
         self.assertEqual(connection.commits, 1)
+
+    def test_property_condition_sql_uses_signed_age_subtraction(self):
+        self.assertIn("CAST(LEFT(deal_yyyymm, 4) AS SIGNED)", PROPERTY_CONDITION_DERIVED_SQL)
+        self.assertIn("CAST(MIN(build_year) AS SIGNED)", PROPERTY_CONDITION_DERIVED_SQL)
 
 
 if __name__ == "__main__":

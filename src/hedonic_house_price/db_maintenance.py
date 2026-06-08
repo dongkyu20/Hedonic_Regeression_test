@@ -29,7 +29,7 @@ SELECT
   ROUND(AVG(exclusive_area_m2), 3),
   ROUND(AVG(floor)),
   MIN(build_year),
-  GREATEST(0, CAST(LEFT(deal_yyyymm, 4) AS UNSIGNED) - MIN(build_year))
+  GREATEST(0, CAST(LEFT(deal_yyyymm, 4) AS SIGNED) - CAST(MIN(build_year) AS SIGNED))
 FROM housing_transactions
 WHERE complex_id IS NOT NULL
 GROUP BY complex_id, deal_yyyymm
