@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hedonic-house-price"
+version = "0.1.0"
+description = "서울 아파트 실거래가 공공데이터 기반 Hedonic 회귀 가격 예측 모델"
+requires-python = ">=3.9"
+dependencies = [
+    "scikit-learn>=1.6,<2",
+]
+
+[project.scripts]
+hedonic-house-price = "hedonic_house_price.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
