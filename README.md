@@ -171,6 +171,57 @@ PYTHONPATH=src python3 -m hedonic_house_price gui --model artifacts/hedonic_mode
 
 `train` 명령은 CSV 로드, 학습/검증 분할, 특성 생성, sklearn Ridge 학습, 평가, 층 구간 잔차 계산, 모델 저장 단계를 `stderr`에 즉시 출력합니다. 최종 JSON 결과는 기존처럼 `stdout`에 출력됩니다.
 
+## MySQL 데이터베이스 사용
+
+CSV 흐름은 그대로 유지하면서 MySQL을 구조화된 저장소로 사용할 수 있습니다. MySQL 기능은 선택 사항이며, 사용하려면 MySQL 커넥터 의존성을 설치합니다.
+
+```bash
+python3 -m pip install -e ".[mysql]"
+```
+
+`.env` 또는 환경변수에 MySQL 접속 정보를 설정합니다.
+
+```bash
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_DATABASE=hedonic_house_price
+```
+
+스키마와 서울/부산 행정구역 seed를 생성합니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price db-init
+```
+
+기존 서울 CSV를 MySQL로 적재합니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price db-import-csv \
+  --input data/seoul_apartment_trades.csv \
+  --city-code seoul
+```
+
+부산 CSV가 준비되면 같은 스키마에 `city-code busan`으로 적재합니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price db-import-csv \
+  --input data/busan_apartment_trades.csv \
+  --city-code busan
+```
+
+MySQL의 `model_training_features` 뷰에서 거래를 읽어 학습하려면 `train --from-db`를 사용합니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price train \
+  --from-db \
+  --city-code seoul \
+  --model-output artifacts/hedonic_mysql_seoul_model.pkl
+```
+
+`housing_transactions.city_code`와 `administrative_regions.city_code`는 `seoul` 또는 `busan` 값으로 서울/부산 여부를 명확히 구분합니다. 교통, 생활·교육·자연환경, 도시 경쟁력 값은 각 snapshot 테이블에 월 단위로 적재하면 `model_training_features` 뷰에서 거래 월과 정확히 일치하는 값만 조인됩니다.
+
 ## 검증
 
 ```bash
