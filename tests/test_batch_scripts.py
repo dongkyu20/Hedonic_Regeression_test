@@ -10,11 +10,13 @@ class BatchScriptTests(unittest.TestCase):
         script = (ROOT / "scripts" / "refresh_apartment_db.sh").read_text(encoding="utf-8")
 
         self.assertIn("db-clear-data", script)
-        self.assertIn("--city-codes seoul", script)
-        self.assertIn("--city-codes busan", script)
+        self.assertIn('--city-codes "$city_code"', script)
+        self.assertIn("fetch_apartments seoul", script)
+        self.assertIn("fetch_apartments busan", script)
         self.assertIn("--property-types apartment", script)
         self.assertNotIn("officetel", script)
         self.assertNotIn("rowhouse", script)
+        self.assertNotIn("REFERENCE_MONTH_ARGS[@]", script)
         self.assertIn("db-refresh-derived-snapshots", script)
 
 

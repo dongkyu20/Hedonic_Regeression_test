@@ -8,34 +8,39 @@ NUM_ROWS="${NUM_ROWS:-1000}"
 
 export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
-REFERENCE_MONTH_ARGS=()
-if [[ -n "${REFERENCE_MONTH:-}" ]]; then
-  REFERENCE_MONTH_ARGS=(--reference-month "$REFERENCE_MONTH")
-fi
+fetch_apartments() {
+  local city_code="$1"
+  local output_path="$2"
+
+  if [[ -n "${REFERENCE_MONTH:-}" ]]; then
+    "$PYTHON_BIN" -m hedonic_house_price fetch \
+      --city-codes "$city_code" \
+      --property-types apartment \
+      --months "$MONTHS" \
+      --num-rows "$NUM_ROWS" \
+      --reference-month "$REFERENCE_MONTH" \
+      --output "$output_path"
+  else
+    "$PYTHON_BIN" -m hedonic_house_price fetch \
+      --city-codes "$city_code" \
+      --property-types apartment \
+      --months "$MONTHS" \
+      --num-rows "$NUM_ROWS" \
+      --output "$output_path"
+  fi
+}
 
 mkdir -p "$ROOT_DIR/data"
 
 "$PYTHON_BIN" -m hedonic_house_price db-clear-data
 
-"$PYTHON_BIN" -m hedonic_house_price fetch \
-  --city-codes seoul \
-  --property-types apartment \
-  --months "$MONTHS" \
-  --num-rows "$NUM_ROWS" \
-  "${REFERENCE_MONTH_ARGS[@]}" \
-  --output "$ROOT_DIR/data/seoul_apartment_trades.csv"
+fetch_apartments seoul "$ROOT_DIR/data/seoul_apartment_trades.csv"
 
 "$PYTHON_BIN" -m hedonic_house_price db-import-csv \
   --input "$ROOT_DIR/data/seoul_apartment_trades.csv" \
   --city-code seoul
 
-"$PYTHON_BIN" -m hedonic_house_price fetch \
-  --city-codes busan \
-  --property-types apartment \
-  --months "$MONTHS" \
-  --num-rows "$NUM_ROWS" \
-  "${REFERENCE_MONTH_ARGS[@]}" \
-  --output "$ROOT_DIR/data/busan_apartment_trades.csv"
+fetch_apartments busan "$ROOT_DIR/data/busan_apartment_trades.csv"
 
 "$PYTHON_BIN" -m hedonic_house_price db-import-csv \
   --input "$ROOT_DIR/data/busan_apartment_trades.csv" \
