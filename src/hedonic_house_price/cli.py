@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .client import fetch_transactions
+from .complex_info import import_complex_basic_info_csv
 from .config import get_service_key
 from .db import bootstrap_database, get_mysql_connection
 from .db_import import import_transactions_csv
@@ -91,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
     db_import_parser.add_argument("--input", required=True)
     db_import_parser.add_argument("--city-code", required=True, choices=["seoul", "busan"])
 
+    db_complex_info_parser = subparsers.add_parser(
+        "db-import-complex-info",
+        help="Enrich MySQL apartment complexes from a K-apt complex basic info CSV.",
+    )
+    db_complex_info_parser.add_argument("--input", required=True)
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -113,6 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_init(args)
     if args.command == "db-import-csv":
         return _handle_db_import_csv(args)
+    if args.command == "db-import-complex-info":
+        return _handle_db_import_complex_info(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -317,6 +326,13 @@ def _handle_db_import_csv(args: argparse.Namespace) -> int:
         args.input,
         city_code=args.city_code,
     )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_complex_info(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_complex_basic_info_csv(connection, args.input)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

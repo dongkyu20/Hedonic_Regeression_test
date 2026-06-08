@@ -166,6 +166,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.input, "data/seoul_apartment_trades.csv")
         self.assertEqual(args.city_code, "seoul")
 
+    def test_db_import_complex_info_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-complex-info",
+                "--input",
+                "data/complex_basic_info.csv",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-complex-info")
+        self.assertEqual(args.input, "data/complex_basic_info.csv")
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -343,6 +355,21 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn('"property_condition_rows": 10', stdout.getvalue())
+
+    def test_db_import_complex_info_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_complex_basic_info_csv",
+                return_value={"matched_complexes": 3, "updated_complexes": 2},
+            ),
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(["db-import-complex-info", "--input", "data/complex_basic_info.csv"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"matched_complexes": 3', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(
