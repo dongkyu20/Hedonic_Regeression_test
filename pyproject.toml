@@ -11,6 +11,11 @@ dependencies = [
     "scikit-learn>=1.6,<2",
 ]
 
+[project.optional-dependencies]
+mysql = [
+    "mysql-connector-python>=9.0,<10",
+]
+
 [project.scripts]
 hedonic-house-price = "hedonic_house_price.cli:main"
 
