@@ -14,6 +14,7 @@ class BatchScriptTests(unittest.TestCase):
         self.assertIn("fetch_apartments seoul", script)
         self.assertIn("fetch_apartments busan", script)
         self.assertIn("--property-types apartment", script)
+        self.assertIn('MONTHS="${MONTHS:-36}"', script)
         self.assertNotIn("officetel", script)
         self.assertNotIn("rowhouse", script)
         self.assertNotIn("REFERENCE_MONTH_ARGS[@]", script)
