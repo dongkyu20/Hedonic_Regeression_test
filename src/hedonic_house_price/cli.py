@@ -8,6 +8,9 @@ from pathlib import Path
 
 from .client import fetch_transactions
 from .config import get_service_key
+from .db import bootstrap_database, get_mysql_connection
+from .db_import import import_transactions_csv
+from .db_training import read_transactions_from_training_view
 from .dates import recent_months
 from .gui import run_gui_server
 from .law_codes import SEOUL_DISTRICT_CODES
@@ -44,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--alpha", type=float, default=1.0)
     train_parser.add_argument("--min-apartment-count", type=int, default=5, help=argparse.SUPPRESS)
     train_parser.add_argument("--validation-months", type=int, default=6)
+    train_parser.add_argument("--from-db", action="store_true", help="Train from MySQL model_training_features instead of CSV.")
+    train_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None, help="Filter DB training rows by city.")
+    train_parser.add_argument(
+        "--property-types",
+        default=None,
+        help="Comma-separated DB training property types. Defaults to all property types.",
+    )
 
     predict_parser = subparsers.add_parser("predict", help="Predict apartment sale price.")
     predict_parser.add_argument("--model", default="artifacts/hedonic_model.pkl")
@@ -66,6 +76,15 @@ def build_parser() -> argparse.ArgumentParser:
     gui_parser.add_argument("--host", default="127.0.0.1")
     gui_parser.add_argument("--port", type=int, default=8000)
 
+    db_init_parser = subparsers.add_parser("db-init", help="Create MySQL schema and seed administrative regions.")
+    db_init_parser.add_argument("--schema", default="sql/mysql_schema.sql")
+    db_init_parser.add_argument("--seed", default="sql/mysql_seed_regions.sql")
+    db_init_parser.add_argument("--skip-seed", action="store_true")
+
+    db_import_parser = subparsers.add_parser("db-import-csv", help="Import a transaction CSV into MySQL.")
+    db_import_parser.add_argument("--input", required=True)
+    db_import_parser.add_argument("--city-code", required=True, choices=["seoul", "busan"])
+
     return parser
 
 
@@ -81,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_predict(args)
     if args.command == "gui":
         return _handle_gui(args)
+    if args.command == "db-init":
+        return _handle_db_init(args)
+    if args.command == "db-import-csv":
+        return _handle_db_import_csv(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
@@ -142,9 +165,20 @@ def _handle_fetch(args: argparse.Namespace) -> int:
 
 def _handle_train(args: argparse.Namespace) -> int:
     started = time.perf_counter()
-    _print_train_progress("CSV 로드 시작", input=args.input)
-    transactions = read_transactions_csv(args.input)
-    _print_train_progress("CSV 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
+    if args.from_db:
+        _print_train_progress("DB 로드 시작", city_code=args.city_code or "all")
+        connection = get_mysql_connection()
+        property_types = _parse_property_types(args.property_types) if args.property_types else None
+        transactions = read_transactions_from_training_view(
+            connection,
+            city_code=args.city_code,
+            property_types=property_types,
+        )
+        _print_train_progress("DB 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
+    else:
+        _print_train_progress("CSV 로드 시작", input=args.input)
+        transactions = read_transactions_csv(args.input)
+        _print_train_progress("CSV 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
 
     model = train_hedonic_model(
         transactions,
@@ -245,6 +279,29 @@ def _handle_predict(args: argparse.Namespace) -> int:
 
 def _handle_gui(args: argparse.Namespace) -> int:
     run_gui_server(model_path=args.model, host=args.host, port=args.port)
+    return 0
+
+
+def _handle_db_init(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = bootstrap_database(
+        connection,
+        schema_path=args.schema,
+        seed_path=args.seed,
+        include_seed=not args.skip_seed,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_csv(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_transactions_csv(
+        connection,
+        args.input,
+        city_code=args.city_code,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

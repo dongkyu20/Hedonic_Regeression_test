@@ -89,6 +89,54 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 8123)
 
+    def test_db_init_command_parses_schema_and_seed_options(self):
+        args = build_parser().parse_args(
+            [
+                "db-init",
+                "--schema",
+                "sql/mysql_schema.sql",
+                "--seed",
+                "sql/mysql_seed_regions.sql",
+                "--skip-seed",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-init")
+        self.assertEqual(args.schema, "sql/mysql_schema.sql")
+        self.assertEqual(args.seed, "sql/mysql_seed_regions.sql")
+        self.assertTrue(args.skip_seed)
+
+    def test_db_import_csv_command_parses_city_and_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-csv",
+                "--input",
+                "data/seoul_apartment_trades.csv",
+                "--city-code",
+                "seoul",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-csv")
+        self.assertEqual(args.input, "data/seoul_apartment_trades.csv")
+        self.assertEqual(args.city_code, "seoul")
+
+    def test_train_command_parses_db_training_options(self):
+        args = build_parser().parse_args(
+            [
+                "train",
+                "--from-db",
+                "--city-code",
+                "busan",
+                "--property-types",
+                "apartment,rowhouse",
+            ]
+        )
+
+        self.assertTrue(args.from_db)
+        self.assertEqual(args.city_code, "busan")
+        self.assertEqual(args.property_types, "apartment,rowhouse")
+
     def test_train_command_prints_realtime_progress_to_stderr(self):
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as csv_file:
             input_path = csv_file.name
@@ -176,6 +224,43 @@ class CliTests(unittest.TestCase):
             self.assertEqual(record["building_name"], "건축년도없는오피스텔")
             self.assertIn("skipped_rows", stdout.getvalue())
             self.assertIn("[fetch] 제외 거래 기록", stderr.getvalue())
+
+    def test_train_from_db_uses_training_view_reader(self):
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as model_file:
+            model_path = model_file.name
+
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        try:
+            with (
+                patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+                patch("hedonic_house_price.cli.read_transactions_from_training_view", return_value=sample_transactions()),
+                redirect_stderr(stderr),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main(
+                    [
+                        "train",
+                        "--from-db",
+                        "--city-code",
+                        "seoul",
+                        "--model-output",
+                        model_path,
+                        "--alpha",
+                        "0.1",
+                        "--min-apartment-count",
+                        "2",
+                        "--validation-months",
+                        "2",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("[train] DB 로드 시작", stderr.getvalue())
+            self.assertIn("[train] DB 로드 완료", stderr.getvalue())
+            self.assertIn('"model_output"', stdout.getvalue())
+        finally:
+            os.unlink(model_path)
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(
