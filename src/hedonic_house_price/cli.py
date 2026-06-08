@@ -10,10 +10,11 @@ from .client import fetch_transactions
 from .config import get_service_key
 from .db import bootstrap_database, get_mysql_connection
 from .db_import import import_transactions_csv
+from .db_maintenance import clear_transaction_data, refresh_transaction_derived_snapshots
 from .db_training import read_transactions_from_training_view
 from .dates import recent_months
 from .gui import run_gui_server
-from .law_codes import SEOUL_DISTRICT_CODES
+from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
 from .transactions import normalize_property_type, read_transactions_csv, write_transactions_csv
 
@@ -30,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser.add_argument("--months", type=int, default=24)
     fetch_parser.add_argument("--reference-month", default=None, help="YYYYMM. Defaults to current month.")
     fetch_parser.add_argument("--num-rows", type=int, default=1000)
+    fetch_parser.add_argument(
+        "--city-codes",
+        default="seoul",
+        help="Comma-separated: seoul,busan. Defaults to seoul.",
+    )
     fetch_parser.add_argument(
         "--property-types",
         default="apartment",
@@ -85,6 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
     db_import_parser.add_argument("--input", required=True)
     db_import_parser.add_argument("--city-code", required=True, choices=["seoul", "busan"])
 
+    subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
+    subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
+
     return parser
 
 
@@ -104,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_init(args)
     if args.command == "db-import-csv":
         return _handle_db_import_csv(args)
+    if args.command == "db-clear-data":
+        return _handle_db_clear_data(args)
+    if args.command == "db-refresh-derived-snapshots":
+        return _handle_db_refresh_derived_snapshots(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
@@ -111,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
 def _handle_fetch(args: argparse.Namespace) -> int:
     service_key = get_service_key()
     months = recent_months(count=args.months, reference_yyyymm=args.reference_month)
+    city_codes = _parse_city_codes(args.city_codes)
+    district_codes = _district_codes_for_city_codes(city_codes)
     property_types = _parse_property_types(args.property_types)
     skip_log_path = _resolve_skip_log_path(output_path=args.output, skip_log_output=args.skip_log_output)
     skipped_rows = 0
@@ -128,7 +143,7 @@ def _handle_fetch(args: argparse.Namespace) -> int:
     try:
         transactions = fetch_transactions(
             service_key=service_key,
-            district_codes=SEOUL_DISTRICT_CODES,
+            district_codes=district_codes,
             deal_months=months,
             num_rows=args.num_rows,
             property_types=property_types,
@@ -151,7 +166,8 @@ def _handle_fetch(args: argparse.Namespace) -> int:
                 "output": args.output,
                 "rows": len(transactions),
                 "months": months,
-                "districts": len(SEOUL_DISTRICT_CODES),
+                "city_codes": city_codes,
+                "districts": len(district_codes),
                 "property_types": property_types,
                 "skipped_rows": skipped_rows,
                 "skip_log_output": str(skip_log_path) if skipped_rows else None,
@@ -303,6 +319,45 @@ def _handle_db_import_csv(args: argparse.Namespace) -> int:
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def _handle_db_clear_data(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = clear_transaction_data(connection)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_refresh_derived_snapshots(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = refresh_transaction_derived_snapshots(connection)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _parse_city_codes(raw: str) -> list[str]:
+    values = [value.strip().lower() for value in raw.split(",") if value.strip()]
+    if not values:
+        raise ValueError("city-codes must include at least one city code")
+    normalized: list[str] = []
+    for value in values:
+        if value not in CITY_DISTRICT_CODES:
+            raise ValueError(f"unsupported city_code: {value}")
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _district_codes_for_city_codes(city_codes: list[str]) -> dict[str, str]:
+    if len(city_codes) == 1:
+        return dict(district_codes_for_city(city_codes[0]))
+
+    combined: dict[str, str] = {}
+    for city_code in city_codes:
+        city_name = city_name_for_city_code(city_code)
+        for district, lawd_cd in district_codes_for_city(city_code).items():
+            combined[f"{city_name} {district}"] = lawd_cd
+    return combined
 
 
 def _parse_property_types(raw: str) -> list[str]:

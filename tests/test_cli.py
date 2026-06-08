@@ -58,6 +58,51 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.property_types, "apartment,officetel,rowhouse")
         self.assertEqual(args.output, "data/seoul_housing_trades.csv")
 
+    def test_fetch_command_parses_city_collection_options(self):
+        args = build_parser().parse_args(
+            [
+                "fetch",
+                "--city-codes",
+                "seoul,busan",
+                "--property-types",
+                "apartment",
+                "--output",
+                "data/seoul_busan_apartment_trades.csv",
+            ]
+        )
+
+        self.assertEqual(args.city_codes, "seoul,busan")
+        self.assertEqual(args.property_types, "apartment")
+        self.assertEqual(args.output, "data/seoul_busan_apartment_trades.csv")
+
+    def test_fetch_command_uses_selected_city_districts(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_service_key", return_value="service-key"),
+            patch("hedonic_house_price.cli.recent_months", return_value=["202505"]),
+            patch("hedonic_house_price.cli.fetch_transactions", return_value=sample_transactions()) as fetch_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "fetch",
+                    "--city-codes",
+                    "seoul,busan",
+                    "--property-types",
+                    "apartment",
+                    "--output",
+                    "/tmp/seoul_busan_apartment.csv",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        call_kwargs = fetch_mock.call_args.kwargs
+        self.assertEqual(call_kwargs["property_types"], ["apartment"])
+        self.assertEqual(len(call_kwargs["district_codes"]), 41)
+        self.assertEqual(call_kwargs["district_codes"]["서울특별시 강남구"], "11680")
+        self.assertEqual(call_kwargs["district_codes"]["부산광역시 해운대구"], "26350")
+        self.assertIn('"city_codes"', stdout.getvalue())
+
     def test_train_command_parses_model_options(self):
         args = build_parser().parse_args(
             [
@@ -120,6 +165,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.command, "db-import-csv")
         self.assertEqual(args.input, "data/seoul_apartment_trades.csv")
         self.assertEqual(args.city_code, "seoul")
+
+    def test_db_clear_data_command_parses(self):
+        args = build_parser().parse_args(["db-clear-data"])
+
+        self.assertEqual(args.command, "db-clear-data")
+
+    def test_db_refresh_derived_snapshots_command_parses(self):
+        args = build_parser().parse_args(["db-refresh-derived-snapshots"])
+
+        self.assertEqual(args.command, "db-refresh-derived-snapshots")
 
     def test_train_command_parses_db_training_options(self):
         args = build_parser().parse_args(
@@ -261,6 +316,33 @@ class CliTests(unittest.TestCase):
             self.assertIn('"model_output"', stdout.getvalue())
         finally:
             os.unlink(model_path)
+
+    def test_db_clear_data_uses_maintenance_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.clear_transaction_data", return_value={"cleared_tables": 6}),
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(["db-clear-data"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"cleared_tables": 6', stdout.getvalue())
+
+    def test_db_refresh_derived_snapshots_uses_maintenance_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.refresh_transaction_derived_snapshots",
+                return_value={"property_condition_rows": 10, "urban_competitiveness_rows": 2},
+            ),
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(["db-refresh-derived-snapshots"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"property_condition_rows": 10', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(

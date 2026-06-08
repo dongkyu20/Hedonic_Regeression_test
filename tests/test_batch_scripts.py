@@ -1,0 +1,22 @@
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class BatchScriptTests(unittest.TestCase):
+    def test_refresh_apartment_db_script_fetches_only_seoul_and_busan_apartments(self):
+        script = (ROOT / "scripts" / "refresh_apartment_db.sh").read_text(encoding="utf-8")
+
+        self.assertIn("db-clear-data", script)
+        self.assertIn("--city-codes seoul", script)
+        self.assertIn("--city-codes busan", script)
+        self.assertIn("--property-types apartment", script)
+        self.assertNotIn("officetel", script)
+        self.assertNotIn("rowhouse", script)
+        self.assertIn("db-refresh-derived-snapshots", script)
+
+
+if __name__ == "__main__":
+    unittest.main()
