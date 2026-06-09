@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -194,10 +195,41 @@ def _candidate_params(*, city_code: str | None, limit: int | None) -> list[objec
 def _address_candidates(row: dict[str, Any]) -> list[str]:
     candidates = []
     for value in (row.get("road_address"), row.get("jibun_address")):
-        address = str(value or "").strip()
-        if address and address not in candidates:
-            candidates.append(address)
+        for address in _split_address_values(value):
+            for candidate in _address_variants(address):
+                if candidate and candidate not in candidates:
+                    candidates.append(candidate)
     return candidates
+
+
+def _split_address_values(value: object) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    return [
+        re.sub(r"\s+", " ", part.strip())
+        for part in re.split(r"\s*,\s*", text)
+        if part.strip()
+    ]
+
+
+def _address_variants(address: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", address.strip())
+    variants = [normalized]
+    trimmed = _trim_jibun_detail(normalized)
+    if trimmed and trimmed not in variants:
+        variants.append(trimmed)
+    return variants
+
+
+def _trim_jibun_detail(address: str) -> str | None:
+    match = re.match(r"^(.+?(?:동|가|리)\s+)(\d+(?:-\d+)?)-?(?:\s+.+)?$", address)
+    if match is None:
+        return None
+    lot_number = match.group(2)
+    if lot_number == "0":
+        return None
+    return f"{match.group(1)}{lot_number}".strip()
 
 
 def _geocode_first_match(

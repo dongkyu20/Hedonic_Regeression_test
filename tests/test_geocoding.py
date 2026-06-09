@@ -87,6 +87,94 @@ class GeocodingTests(unittest.TestCase):
         self.assertEqual(result["address_attempts"], 2)
         self.assertEqual(connection.cursor_obj.update_params[0], (35.15821, 129.15984, 20))
 
+    def test_geocode_missing_complex_coordinates_splits_multi_address_fields(self):
+        connection = FakeConnection(
+            [
+                {
+                    "complex_id": 30,
+                    "road_address": "부산광역시 동래구 충렬대로107번길 65,부산광역시 동래구 금정마을로 150",
+                    "jibun_address": "",
+                }
+            ]
+        )
+        geocoder = FakeGeocoder(
+            {
+                "부산광역시 동래구 금정마을로 150": GeocodeResult(
+                    latitude=35.21995,
+                    longitude=129.08301,
+                    matched_address="부산광역시 동래구 금정마을로 150",
+                )
+            }
+        )
+
+        result = geocode_missing_complex_coordinates(connection, geocoder, sleep_seconds=0)
+
+        self.assertEqual(result["updated_complexes"], 1)
+        self.assertEqual(result["address_attempts"], 2)
+        self.assertEqual(
+            geocoder.queries,
+            [
+                "부산광역시 동래구 충렬대로107번길 65",
+                "부산광역시 동래구 금정마을로 150",
+            ],
+        )
+
+    def test_geocode_missing_complex_coordinates_tries_trimmed_jibun_variants(self):
+        connection = FakeConnection(
+            [
+                {
+                    "complex_id": 40,
+                    "road_address": "",
+                    "jibun_address": "부산광역시 금정구 남산동 123-10 남산동경동아파트",
+                }
+            ]
+        )
+        geocoder = FakeGeocoder(
+            {
+                "부산광역시 금정구 남산동 123-10": GeocodeResult(
+                    latitude=35.265,
+                    longitude=129.093,
+                    matched_address="부산광역시 금정구 남산동 123-10",
+                )
+            }
+        )
+
+        result = geocode_missing_complex_coordinates(connection, geocoder, sleep_seconds=0)
+
+        self.assertEqual(result["updated_complexes"], 1)
+        self.assertEqual(
+            geocoder.queries,
+            [
+                "부산광역시 금정구 남산동 123-10 남산동경동아파트",
+                "부산광역시 금정구 남산동 123-10",
+            ],
+        )
+
+    def test_geocode_missing_complex_coordinates_trims_dangling_lot_hyphen(self):
+        connection = FakeConnection(
+            [
+                {
+                    "complex_id": 50,
+                    "road_address": "",
+                    "jibun_address": "부산광역시 기장군 기장읍 연화리 294- 쌍용 더 플래티넘 오시리아",
+                }
+            ]
+        )
+        geocoder = FakeGeocoder(
+            {
+                "부산광역시 기장군 기장읍 연화리 294": GeocodeResult(
+                    latitude=35.206,
+                    longitude=129.226,
+                    matched_address="부산광역시 기장군 기장읍 연화리 294",
+                )
+            }
+        )
+
+        result = geocode_missing_complex_coordinates(connection, geocoder, sleep_seconds=0)
+
+        self.assertEqual(result["updated_complexes"], 1)
+        self.assertEqual(geocoder.queries[-1], "부산광역시 기장군 기장읍 연화리 294")
+
 
 class FakeGeocoder:
     def __init__(self, results):
