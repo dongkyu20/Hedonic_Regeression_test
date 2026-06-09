@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .access_times import import_average_access_time_snapshots_xlsx
+from .bus_stops import import_bus_stop_distance_snapshots_csv
 from .client import fetch_transactions
 from .complex_info import import_complex_basic_info_csv, import_complex_property_conditions_csv
 from .config import get_service_key
@@ -158,6 +159,14 @@ def build_parser() -> argparse.ArgumentParser:
     db_subway_parser.add_argument("--api-key", default=None, help="Provider API key. Defaults to KAKAO_REST_API_KEY.")
     db_subway_parser.add_argument("--sleep-seconds", type=float, default=0.1)
 
+    db_bus_stop_parser = subparsers.add_parser(
+        "db-import-bus-stop-distances",
+        help="Fill bus stop distance and radius-count fields from a bus stop location CSV.",
+    )
+    db_bus_stop_parser.add_argument("--input", required=True)
+    db_bus_stop_parser.add_argument("--source-name", default="transport_access")
+    db_bus_stop_parser.add_argument("--radius-m", type=int, default=1000)
+
     db_access_time_parser = subparsers.add_parser(
         "db-import-access-times",
         help="Fill average car/transit access time fields from the 2023 access time workbook.",
@@ -197,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_school_distances(args)
     if args.command == "db-import-subway-distances":
         return _handle_db_import_subway_distances(args)
+    if args.command == "db-import-bus-stop-distances":
+        return _handle_db_import_bus_stop_distances(args)
     if args.command == "db-import-access-times":
         return _handle_db_import_access_times(args)
     if args.command == "db-clear-data":
@@ -473,6 +484,18 @@ def _handle_db_import_subway_distances(args: argparse.Namespace) -> int:
         source_name=args.source_name,
         radius_m=args.radius_m,
         sleep_seconds=args.sleep_seconds,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_bus_stop_distances(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_bus_stop_distance_snapshots_csv(
+        connection,
+        args.input,
+        source_name=args.source_name,
+        radius_m=args.radius_m,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

@@ -260,6 +260,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.radius_m, 750)
         self.assertEqual(args.sleep_seconds, 0)
 
+    def test_db_import_bus_stop_distances_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-bus-stop-distances",
+                "--input",
+                "data/bus_stops.csv",
+                "--source-name",
+                "transport_access",
+                "--radius-m",
+                "750",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-bus-stop-distances")
+        self.assertEqual(args.input, "data/bus_stops.csv")
+        self.assertEqual(args.source_name, "transport_access")
+        self.assertEqual(args.radius_m, 750)
+
     def test_db_import_access_times_command_parses_input(self):
         args = build_parser().parse_args(
             [
@@ -591,6 +609,34 @@ class CliTests(unittest.TestCase):
         self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
         self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_bus_stop_distances_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_bus_stop_distance_snapshots_csv",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-bus-stop-distances",
+                    "--input",
+                    "data/bus_stops.csv",
+                    "--source-name",
+                    "transport_access",
+                    "--radius-m",
+                    "750",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/bus_stops.csv")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
 
     def test_db_import_access_times_uses_import_helper(self):
