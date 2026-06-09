@@ -6,6 +6,7 @@ from pathlib import Path
 from hedonic_house_price.complex_info import (
     ComplexBasicInfo,
     find_complex_basic_info_match,
+    import_complex_property_conditions_csv,
     is_apartment_like_category,
     normalize_complex_name,
     normalize_legal_dong_name,
@@ -58,6 +59,63 @@ class ComplexInfoTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_read_complex_basic_info_csv_reads_property_condition_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "complex_info.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["자료 안내", "", "", "", "", "", "", "", ""])
+                writer.writerow(
+                    [
+                        "시도",
+                        "시군구",
+                        "읍면",
+                        "동리",
+                        "단지코드",
+                        "단지명",
+                        "단지분류",
+                        "법정동주소",
+                        "도로명주소",
+                        "사용승인일",
+                        "동수",
+                        "세대수",
+                        "총주차대수",
+                        "부대복리시설",
+                        "최고층수",
+                        "입주편의시설",
+                    ]
+                )
+                writer.writerow(
+                    [
+                        "서울특별시",
+                        "종로구",
+                        "",
+                        "내수동",
+                        "A1",
+                        "경희궁의아침3단지",
+                        "주상복합",
+                        "서울 종로구 내수동 72",
+                        "서울 종로구 사직로8길 34",
+                        "20040517",
+                        "1",
+                        "150.0",
+                        "315",
+                        "관리사무소, 주민공동시설",
+                        "16",
+                        "없음",
+                    ]
+                )
+
+            rows = read_complex_basic_info_csv(path)
+
+        self.assertEqual(rows[0].approval_date, "20040517")
+        self.assertEqual(rows[0].building_count, 1)
+        self.assertEqual(rows[0].household_count, 150)
+        self.assertEqual(rows[0].total_parking_spaces, 315)
+        self.assertEqual(rows[0].max_floor, 16)
+        self.assertEqual(rows[0].community_facilities, "관리사무소, 주민공동시설")
+        self.assertEqual(rows[0].resident_convenience_facilities, "없음")
 
     def test_find_complex_basic_info_match_prefers_legal_dong_match(self):
         candidates = [
@@ -262,6 +320,111 @@ class ComplexInfoTests(unittest.TestCase):
 
         self.assertIsNotNone(match.info)
         self.assertEqual(match.kind, "dong")
+
+    def test_import_complex_property_conditions_inserts_monthly_snapshots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "complex_info.csv"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["자료 안내", "", "", "", "", "", "", "", ""])
+                writer.writerow(
+                    [
+                        "시도",
+                        "시군구",
+                        "읍면",
+                        "동리",
+                        "단지코드",
+                        "단지명",
+                        "단지분류",
+                        "법정동주소",
+                        "도로명주소",
+                        "사용승인일",
+                        "동수",
+                        "세대수",
+                        "총주차대수",
+                        "부대복리시설",
+                        "최고층수",
+                        "입주편의시설",
+                    ]
+                )
+                writer.writerow(
+                    [
+                        "서울특별시",
+                        "종로구",
+                        "",
+                        "내수동",
+                        "A1",
+                        "경희궁의아침3단지",
+                        "주상복합",
+                        "서울 종로구 내수동 72",
+                        "서울 종로구 사직로8길 34",
+                        "20040517",
+                        "1",
+                        "150.0",
+                        "315",
+                        "관리사무소, 주민공동시설",
+                        "16",
+                        "없음",
+                    ]
+                )
+
+            connection = FakeConnection(
+                [
+                    {
+                        "complex_id": 10,
+                        "complex_name": "경희궁의아침3단지",
+                        "city_code": "seoul",
+                        "district_name": "종로구",
+                        "legal_dongs": "내수동",
+                        "deal_months": "202505\n202601",
+                    }
+                ]
+            )
+
+            result = import_complex_property_conditions_csv(connection, path)
+
+        self.assertEqual(result["matched_complexes"], 1)
+        self.assertEqual(result["snapshot_rows"], 2)
+        self.assertEqual(connection.commits, 1)
+        insert_params = connection.cursor_obj.params
+        self.assertEqual(insert_params[0][:3], (10, "202505", "kapt_basic_info"))
+        self.assertEqual(insert_params[0][3:], (16, 2004, 21, 150, 1, 315, 2.1, 1))
+        self.assertEqual(insert_params[1][5], 22)
+
+
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.statements = []
+        self.params = []
+        self.rowcount = 1
+
+    def execute(self, statement, params=None):
+        self.statements.append(statement)
+        if params is not None:
+            self.params.append(params)
+
+    def fetchall(self):
+        return self.rows
+
+    def close(self):
+        self.statements.append("CLOSE")
+
+
+class FakeConnection:
+    def __init__(self, rows):
+        self.cursor_obj = FakeCursor(rows)
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self, **kwargs):
+        return self.cursor_obj
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
 
 
 if __name__ == "__main__":

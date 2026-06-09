@@ -182,6 +182,20 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.reset_addresses)
         self.assertTrue(args.accept_remaining_matches)
 
+    def test_db_import_complex_conditions_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-complex-conditions",
+                "--input",
+                "data/complex_basic_info.csv",
+                "--accept-remaining-matches",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-complex-conditions")
+        self.assertEqual(args.input, "data/complex_basic_info.csv")
+        self.assertTrue(args.accept_remaining_matches)
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -384,6 +398,29 @@ class CliTests(unittest.TestCase):
         self.assertTrue(import_mock.call_args.kwargs["reset_addresses"])
         self.assertTrue(import_mock.call_args.kwargs["accept_remaining_matches"])
         self.assertIn('"matched_complexes": 3', stdout.getvalue())
+
+    def test_db_import_complex_conditions_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_complex_property_conditions_csv",
+                return_value={"matched_complexes": 3, "snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-complex-conditions",
+                    "--input",
+                    "data/complex_basic_info.csv",
+                    "--accept-remaining-matches",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(import_mock.call_args.kwargs["accept_remaining_matches"])
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(

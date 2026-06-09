@@ -39,6 +39,13 @@ class MysqlSchemaTests(unittest.TestCase):
         self.assertIn("park_area_total_m2_radius", sql)
         self.assertIn("unsold_housing_count", sql)
 
+    def test_training_view_joins_property_condition_sources_once(self):
+        sql = SCHEMA_SQL.read_text(encoding="utf-8")
+
+        self.assertIn("pcs_tx.source_name = 'transactions_derived'", sql)
+        self.assertIn("pcs_kapt.source_name = 'kapt_basic_info'", sql)
+        self.assertIn("COALESCE(pcs_kapt.household_count, pcs_tx.household_count)", sql)
+
     def test_seed_contains_seoul_and_busan_district_rows(self):
         seed = SEED_SQL.read_text(encoding="utf-8")
 

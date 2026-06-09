@@ -46,6 +46,22 @@ WHERE c.property_type = 'apartment'
 GROUP BY c.complex_id, c.complex_name, r.city_code, r.district_name
 """
 
+SELECT_COMPLEXES_WITH_MONTHS_SQL = """
+SELECT
+  c.complex_id,
+  c.complex_name,
+  r.city_code,
+  r.district_name,
+  GROUP_CONCAT(DISTINCT t.legal_dong_name ORDER BY t.legal_dong_name SEPARATOR '\n') AS legal_dongs,
+  GROUP_CONCAT(DISTINCT t.deal_yyyymm ORDER BY t.deal_yyyymm SEPARATOR '\n') AS deal_months
+FROM housing_complexes c
+JOIN administrative_regions r ON r.region_id = c.region_id
+LEFT JOIN housing_transactions t ON t.complex_id = c.complex_id
+WHERE c.property_type = 'apartment'
+  AND r.city_code IN ('seoul', 'busan')
+GROUP BY c.complex_id, c.complex_name, r.city_code, r.district_name
+"""
+
 UPDATE_COMPLEX_ADDRESS_SQL = """
 UPDATE housing_complexes
 SET
@@ -66,6 +82,32 @@ WHERE c.property_type = 'apartment'
   AND r.city_code IN ('seoul', 'busan')
 """
 
+UPSERT_PROPERTY_CONDITION_SQL = """
+INSERT INTO property_condition_snapshots (
+  complex_id,
+  snapshot_yyyymm,
+  source_name,
+  representative_floor,
+  build_year,
+  building_age_years,
+  household_count,
+  building_count,
+  total_parking_spaces,
+  parking_spaces_per_household,
+  has_community_facilities
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON DUPLICATE KEY UPDATE
+  representative_floor = VALUES(representative_floor),
+  build_year = VALUES(build_year),
+  building_age_years = VALUES(building_age_years),
+  household_count = VALUES(household_count),
+  building_count = VALUES(building_count),
+  total_parking_spaces = VALUES(total_parking_spaces),
+  parking_spaces_per_household = VALUES(parking_spaces_per_household),
+  has_community_facilities = VALUES(has_community_facilities),
+  updated_at = CURRENT_TIMESTAMP
+"""
+
 
 @dataclass(frozen=True)
 class ComplexBasicInfo:
@@ -78,6 +120,13 @@ class ComplexBasicInfo:
     complex_category: str
     jibun_address: str
     road_address: str
+    approval_date: str = ""
+    building_count: int | None = None
+    household_count: int | None = None
+    total_parking_spaces: int | None = None
+    max_floor: int | None = None
+    community_facilities: str = ""
+    resident_convenience_facilities: str = ""
 
 
 @dataclass(frozen=True)
@@ -143,6 +192,13 @@ def read_complex_basic_info_csv(path: str | Path) -> list[ComplexBasicInfo]:
                     complex_category=_cell(row, index, "단지분류"),
                     jibun_address=_cell(row, index, "법정동주소"),
                     road_address=_cell(row, index, "도로명주소"),
+                    approval_date=_optional_cell(row, index, "사용승인일"),
+                    building_count=_optional_int_cell(row, index, "동수"),
+                    household_count=_optional_int_cell(row, index, "세대수"),
+                    total_parking_spaces=_optional_int_cell(row, index, "총주차대수"),
+                    max_floor=_first_optional_int_cell(row, index, ("최고층수", "최고층수(건축물대장상)")),
+                    community_facilities=_optional_cell(row, index, "부대복리시설"),
+                    resident_convenience_facilities=_optional_cell(row, index, "입주편의시설"),
                 )
             )
     return rows
@@ -302,6 +358,91 @@ def import_complex_basic_info_csv(
         cursor.close()
 
 
+def import_complex_property_conditions_csv(
+    connection: Any,
+    csv_path: str | Path,
+    *,
+    accept_remaining_matches: bool = False,
+    source_name: str = "kapt_basic_info",
+) -> dict[str, int]:
+    candidates = [
+        candidate
+        for candidate in read_complex_basic_info_csv(csv_path)
+        if is_apartment_like_category(candidate.complex_category)
+    ]
+    by_dong, by_district = _build_match_indexes(candidates)
+    cursor = connection.cursor(dictionary=True)
+    stats = {
+        "source_rows": len(candidates),
+        "db_complexes": 0,
+        "matched_complexes": 0,
+        "snapshot_rows": 0,
+        "changed_snapshot_rows": 0,
+        "unmatched_complexes": 0,
+        "ambiguous_complexes": 0,
+        "skipped_no_months": 0,
+        "skipped_no_condition_fields": 0,
+        "dong_matches": 0,
+        "district_unique_matches": 0,
+        "likely_name_variant_matches": 0,
+        "possible_name_variant_matches": 0,
+        "ambiguous_name_variant_matches": 0,
+        "counterpart_has_dong_but_name_absent_matches": 0,
+    }
+    try:
+        cursor.execute(SELECT_COMPLEXES_WITH_MONTHS_SQL)
+        for complex_row in cursor.fetchall():
+            stats["db_complexes"] += 1
+            deal_months = _split_multiline_values(complex_row.get("deal_months"))
+            if not deal_months:
+                stats["skipped_no_months"] += 1
+                continue
+
+            match = _find_match_in_indexes(
+                by_dong,
+                by_district,
+                city_code=complex_row["city_code"],
+                district_name=complex_row["district_name"],
+                legal_dong_names=_split_legal_dongs(complex_row.get("legal_dongs")),
+                complex_name=complex_row["complex_name"],
+                accept_remaining_matches=accept_remaining_matches,
+            )
+            if match.info is None:
+                if match.kind.startswith("ambiguous"):
+                    stats["ambiguous_complexes"] += 1
+                else:
+                    stats["unmatched_complexes"] += 1
+                continue
+
+            stats["matched_complexes"] += 1
+            _count_match_kind(stats, match.kind)
+
+            if not _has_property_condition_fields(match.info):
+                stats["skipped_no_condition_fields"] += 1
+                continue
+
+            for deal_month in deal_months:
+                cursor.execute(
+                    UPSERT_PROPERTY_CONDITION_SQL,
+                    _property_condition_params(
+                        complex_row["complex_id"],
+                        deal_month,
+                        source_name,
+                        match.info,
+                    ),
+                )
+                stats["snapshot_rows"] += 1
+                if cursor.rowcount > 0:
+                    stats["changed_snapshot_rows"] += cursor.rowcount
+        connection.commit()
+        return stats
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+
+
 def _find_header(reader: Any) -> list[str]:
     required = set(REQUIRED_COMPLEX_INFO_COLUMNS)
     for row in reader:
@@ -318,6 +459,35 @@ def _pad_row(row: list[str], size: int) -> list[str]:
 
 def _cell(row: list[str], index: dict[str, int], name: str) -> str:
     return row[index[name]].strip()
+
+
+def _optional_cell(row: list[str], index: dict[str, int], name: str) -> str:
+    column_index = index.get(name)
+    if column_index is None:
+        return ""
+    return row[column_index].strip()
+
+
+def _optional_int_cell(row: list[str], index: dict[str, int], name: str) -> int | None:
+    return _parse_int(_optional_cell(row, index, name))
+
+
+def _first_optional_int_cell(row: list[str], index: dict[str, int], names: tuple[str, ...]) -> int | None:
+    for name in names:
+        value = _optional_int_cell(row, index, name)
+        if value is not None:
+            return value
+    return None
+
+
+def _parse_int(value: str) -> int | None:
+    normalized = (value or "").strip().replace(",", "")
+    if not normalized or normalized == "-":
+        return None
+    try:
+        return int(float(normalized))
+    except ValueError:
+        return None
 
 
 def _build_match_indexes(
@@ -442,6 +612,12 @@ def _split_legal_dongs(value: str | None) -> list[str]:
     return [item.strip() for item in value.split("\n") if item.strip()]
 
 
+def _split_multiline_values(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split("\n") if item.strip()]
+
+
 def _legal_dong_match_keys(values: list[str]) -> set[str]:
     keys: set[str] = set()
     for value in values:
@@ -451,3 +627,81 @@ def _legal_dong_match_keys(values: list[str]) -> set[str]:
         keys.add(stripped)
         keys.add(normalize_legal_dong_name(stripped))
     return keys
+
+
+def _count_match_kind(stats: dict[str, int], kind: str) -> None:
+    key = f"{kind}_matches"
+    if key in stats:
+        stats[key] += 1
+
+
+def _has_property_condition_fields(info: ComplexBasicInfo) -> bool:
+    return any(
+        value is not None
+        for value in (
+            info.max_floor,
+            _approval_year(info.approval_date),
+            info.household_count,
+            info.building_count,
+            info.total_parking_spaces,
+            _community_facility_flag(info),
+        )
+    )
+
+
+def _property_condition_params(
+    complex_id: int,
+    snapshot_yyyymm: str,
+    source_name: str,
+    info: ComplexBasicInfo,
+) -> tuple[object, ...]:
+    build_year = _approval_year(info.approval_date)
+    household_count = info.household_count
+    total_parking_spaces = info.total_parking_spaces
+    parking_spaces_per_household = None
+    if household_count and household_count > 0 and total_parking_spaces is not None:
+        parking_spaces_per_household = round(total_parking_spaces / household_count, 3)
+
+    return (
+        complex_id,
+        snapshot_yyyymm,
+        source_name,
+        info.max_floor,
+        build_year,
+        _building_age_years(snapshot_yyyymm, build_year),
+        household_count,
+        info.building_count,
+        total_parking_spaces,
+        parking_spaces_per_household,
+        _community_facility_flag(info),
+    )
+
+
+def _approval_year(value: str) -> int | None:
+    match = re.match(r"^(\d{4})", (value or "").strip())
+    if not match:
+        return None
+    year = int(match.group(1))
+    return year if year > 0 else None
+
+
+def _building_age_years(snapshot_yyyymm: str, build_year: int | None) -> int | None:
+    if build_year is None:
+        return None
+    match = re.match(r"^(\d{4})", snapshot_yyyymm or "")
+    if not match:
+        return None
+    return max(0, int(match.group(1)) - build_year)
+
+
+def _community_facility_flag(info: ComplexBasicInfo) -> int | None:
+    saw_negative = False
+    for value in (info.community_facilities, info.resident_convenience_facilities):
+        normalized = re.sub(r"\s+", "", (value or "").strip())
+        if not normalized:
+            continue
+        if normalized in {"없음", "무", "-", "해당없음", "미설치"}:
+            saw_negative = True
+            continue
+        return 1
+    return 0 if saw_negative else None

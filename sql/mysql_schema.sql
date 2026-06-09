@@ -197,12 +197,12 @@ SELECT
   t.build_year,
   t.price_manwon,
   t.price_krw,
-  pcs.household_count,
-  pcs.building_count,
-  pcs.total_parking_spaces,
-  pcs.parking_spaces_per_household,
-  pcs.has_community_facilities,
-  pcs.monthly_maintenance_fee_krw,
+  COALESCE(pcs_kapt.household_count, pcs_tx.household_count) AS household_count,
+  COALESCE(pcs_kapt.building_count, pcs_tx.building_count) AS building_count,
+  COALESCE(pcs_kapt.total_parking_spaces, pcs_tx.total_parking_spaces) AS total_parking_spaces,
+  COALESCE(pcs_kapt.parking_spaces_per_household, pcs_tx.parking_spaces_per_household) AS parking_spaces_per_household,
+  COALESCE(pcs_kapt.has_community_facilities, pcs_tx.has_community_facilities) AS has_community_facilities,
+  COALESCE(pcs_kapt.monthly_maintenance_fee_krw, pcs_tx.monthly_maintenance_fee_krw) AS monthly_maintenance_fee_krw,
   COALESCE(tas_complex.nearest_subway_distance_m, tas_region.nearest_subway_distance_m) AS nearest_subway_distance_m,
   COALESCE(tas_complex.subway_count_radius, tas_region.subway_count_radius) AS subway_count_radius,
   COALESCE(tas_complex.nearest_bus_stop_distance_m, tas_region.nearest_bus_stop_distance_m) AS nearest_bus_stop_distance_m,
@@ -233,9 +233,14 @@ SELECT
   ucs.completed_housing_supply_count
 FROM housing_transactions t
 JOIN administrative_regions r ON r.region_id = t.region_id
-LEFT JOIN property_condition_snapshots pcs
-  ON pcs.complex_id = t.complex_id
- AND pcs.snapshot_yyyymm = t.deal_yyyymm
+LEFT JOIN property_condition_snapshots pcs_tx
+  ON pcs_tx.complex_id = t.complex_id
+ AND pcs_tx.snapshot_yyyymm = t.deal_yyyymm
+ AND pcs_tx.source_name = 'transactions_derived'
+LEFT JOIN property_condition_snapshots pcs_kapt
+  ON pcs_kapt.complex_id = t.complex_id
+ AND pcs_kapt.snapshot_yyyymm = t.deal_yyyymm
+ AND pcs_kapt.source_name = 'kapt_basic_info'
 LEFT JOIN transport_access_snapshots tas_complex
   ON tas_complex.complex_id = t.complex_id
  AND tas_complex.snapshot_yyyymm = t.deal_yyyymm

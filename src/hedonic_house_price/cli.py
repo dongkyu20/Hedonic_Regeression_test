@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from .client import fetch_transactions
-from .complex_info import import_complex_basic_info_csv
+from .complex_info import import_complex_basic_info_csv, import_complex_property_conditions_csv
 from .config import get_service_key
 from .db import bootstrap_database, get_mysql_connection
 from .db_import import import_transactions_csv
@@ -108,6 +108,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also accept ambiguous and low-confidence same-dong candidate matches.",
     )
 
+    db_complex_conditions_parser = subparsers.add_parser(
+        "db-import-complex-conditions",
+        help="Enrich MySQL property condition snapshots from a K-apt complex basic info CSV.",
+    )
+    db_complex_conditions_parser.add_argument("--input", required=True)
+    db_complex_conditions_parser.add_argument(
+        "--accept-remaining-matches",
+        action="store_true",
+        help="Also accept ambiguous and low-confidence same-dong candidate matches.",
+    )
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -132,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_csv(args)
     if args.command == "db-import-complex-info":
         return _handle_db_import_complex_info(args)
+    if args.command == "db-import-complex-conditions":
+        return _handle_db_import_complex_conditions(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -346,6 +359,17 @@ def _handle_db_import_complex_info(args: argparse.Namespace) -> int:
         connection,
         args.input,
         reset_addresses=args.reset_addresses,
+        accept_remaining_matches=args.accept_remaining_matches,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_complex_conditions(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_complex_property_conditions_csv(
+        connection,
+        args.input,
         accept_remaining_matches=args.accept_remaining_matches,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
