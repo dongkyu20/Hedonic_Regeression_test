@@ -57,6 +57,14 @@ class MysqlSchemaTests(unittest.TestCase):
         self.assertIn("pcs_kapt.source_name = 'kapt_basic_info'", sql)
         self.assertIn("COALESCE(pcs_kapt.household_count, pcs_tx.household_count)", sql)
 
+    def test_training_view_joins_living_environment_sources_once(self):
+        sql = SCHEMA_SQL.read_text(encoding="utf-8")
+
+        self.assertIn("les_school_complex.source_name = 'school_location'", sql)
+        self.assertIn("les_park_complex.source_name = 'park_standard_data'", sql)
+        self.assertIn("COALESCE(les_park_complex.nearest_park_distance_m", sql)
+        self.assertIn("COALESCE(les_school_complex.school_count_radius", sql)
+
     def test_seed_contains_seoul_and_busan_district_rows(self):
         seed = SEED_SQL.read_text(encoding="utf-8")
 

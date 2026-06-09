@@ -20,6 +20,7 @@ from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_k
 from .gui import run_gui_server
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
+from .parks import import_park_environment_snapshots_xls
 from .school_distances import import_school_distance_snapshots_csv
 from .subway_distances import import_subway_distance_snapshots_csvs
 from .transactions import normalize_property_type, read_transactions_csv, write_transactions_csv
@@ -174,6 +175,14 @@ def build_parser() -> argparse.ArgumentParser:
     db_access_time_parser.add_argument("--input", required=True)
     db_access_time_parser.add_argument("--source-name", default="transport_access")
 
+    db_park_parser = subparsers.add_parser(
+        "db-import-parks",
+        help="Fill nearest park distance and radius park area fields from a park standard-data .xls.",
+    )
+    db_park_parser.add_argument("--input", required=True)
+    db_park_parser.add_argument("--source-name", default="park_standard_data")
+    db_park_parser.add_argument("--radius-m", type=int, default=1000)
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -210,6 +219,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_bus_stop_distances(args)
     if args.command == "db-import-access-times":
         return _handle_db_import_access_times(args)
+    if args.command == "db-import-parks":
+        return _handle_db_import_parks(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -507,6 +518,18 @@ def _handle_db_import_access_times(args: argparse.Namespace) -> int:
         connection,
         args.input,
         source_name=args.source_name,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_parks(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_park_environment_snapshots_xls(
+        connection,
+        args.input,
+        source_name=args.source_name,
+        radius_m=args.radius_m,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

@@ -212,14 +212,14 @@ SELECT
   COALESCE(tas_complex.transit_airport_minutes, tas_region.transit_airport_minutes) AS transit_airport_minutes,
   COALESCE(tas_complex.transit_rail_station_minutes, tas_region.transit_rail_station_minutes) AS transit_rail_station_minutes,
   COALESCE(tas_complex.transit_general_hospital_minutes, tas_region.transit_general_hospital_minutes) AS transit_general_hospital_minutes,
-  COALESCE(les_complex.nearest_elementary_school_distance_m, les_region.nearest_elementary_school_distance_m) AS nearest_elementary_school_distance_m,
-  COALESCE(les_complex.nearest_middle_school_distance_m, les_region.nearest_middle_school_distance_m) AS nearest_middle_school_distance_m,
-  COALESCE(les_complex.school_count_radius, les_region.school_count_radius) AS school_count_radius,
-  COALESCE(les_complex.academy_count_radius, les_region.academy_count_radius) AS academy_count_radius,
-  COALESCE(les_complex.nearest_hospital_distance_m, les_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
-  COALESCE(les_complex.nearest_pharmacy_distance_m, les_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
-  COALESCE(les_complex.nearest_park_distance_m, les_region.nearest_park_distance_m) AS nearest_park_distance_m,
-  COALESCE(les_complex.park_area_total_m2_radius, les_region.park_area_total_m2_radius) AS park_area_total_m2_radius,
+  COALESCE(les_school_complex.nearest_elementary_school_distance_m, les_school_region.nearest_elementary_school_distance_m) AS nearest_elementary_school_distance_m,
+  COALESCE(les_school_complex.nearest_middle_school_distance_m, les_school_region.nearest_middle_school_distance_m) AS nearest_middle_school_distance_m,
+  COALESCE(les_school_complex.school_count_radius, les_school_region.school_count_radius) AS school_count_radius,
+  COALESCE(les_school_complex.academy_count_radius, les_school_region.academy_count_radius) AS academy_count_radius,
+  COALESCE(les_school_complex.nearest_hospital_distance_m, les_school_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
+  COALESCE(les_school_complex.nearest_pharmacy_distance_m, les_school_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
+  COALESCE(les_park_complex.nearest_park_distance_m, les_park_region.nearest_park_distance_m) AS nearest_park_distance_m,
+  COALESCE(les_park_complex.park_area_total_m2_radius, les_park_region.park_area_total_m2_radius) AS park_area_total_m2_radius,
   ucs.population_count,
   ucs.population_growth_rate,
   ucs.employment_rate,
@@ -244,13 +244,24 @@ LEFT JOIN transport_access_snapshots tas_region
   ON tas_region.region_id = t.region_id
  AND tas_region.complex_id IS NULL
  AND tas_region.snapshot_yyyymm = t.deal_yyyymm
-LEFT JOIN living_environment_snapshots les_complex
-  ON les_complex.complex_id = t.complex_id
- AND les_complex.snapshot_yyyymm = t.deal_yyyymm
-LEFT JOIN living_environment_snapshots les_region
-  ON les_region.region_id = t.region_id
- AND les_region.complex_id IS NULL
- AND les_region.snapshot_yyyymm = t.deal_yyyymm
+LEFT JOIN living_environment_snapshots les_school_complex
+  ON les_school_complex.complex_id = t.complex_id
+ AND les_school_complex.snapshot_yyyymm = t.deal_yyyymm
+ AND les_school_complex.source_name = 'school_location'
+LEFT JOIN living_environment_snapshots les_school_region
+  ON les_school_region.region_id = t.region_id
+ AND les_school_region.complex_id IS NULL
+ AND les_school_region.snapshot_yyyymm = t.deal_yyyymm
+ AND les_school_region.source_name = 'school_location'
+LEFT JOIN living_environment_snapshots les_park_complex
+  ON les_park_complex.complex_id = t.complex_id
+ AND les_park_complex.snapshot_yyyymm = t.deal_yyyymm
+ AND les_park_complex.source_name = 'park_standard_data'
+LEFT JOIN living_environment_snapshots les_park_region
+  ON les_park_region.region_id = t.region_id
+ AND les_park_region.complex_id IS NULL
+ AND les_park_region.snapshot_yyyymm = t.deal_yyyymm
+ AND les_park_region.source_name = 'park_standard_data'
 LEFT JOIN urban_competitiveness_snapshots ucs
   ON ucs.region_id = t.region_id
  AND ucs.snapshot_yyyymm = t.deal_yyyymm;
