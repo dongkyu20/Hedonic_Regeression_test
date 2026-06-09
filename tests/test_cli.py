@@ -219,6 +219,21 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.sleep_seconds, 0.05)
         self.assertTrue(args.overwrite)
 
+    def test_db_import_school_distances_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-school-distances",
+                "--input",
+                "data/schools.csv",
+                "--source-name",
+                "school_location",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-school-distances")
+        self.assertEqual(args.input, "data/schools.csv")
+        self.assertEqual(args.source_name, "school_location")
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -474,6 +489,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(geocode_mock.call_args.kwargs["city_code"], "busan")
         self.assertEqual(geocode_mock.call_args.kwargs["limit"], 10)
         self.assertIn('"updated_complexes": 7', stdout.getvalue())
+
+    def test_db_import_school_distances_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_school_distance_snapshots_csv",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-school-distances",
+                    "--input",
+                    "data/schools.csv",
+                    "--source-name",
+                    "school_location",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/schools.csv")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "school_location")
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(

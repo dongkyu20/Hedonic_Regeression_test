@@ -18,6 +18,7 @@ from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_k
 from .gui import run_gui_server
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
+from .school_distances import import_school_distance_snapshots_csv
 from .transactions import normalize_property_type, read_transactions_csv, write_transactions_csv
 
 
@@ -131,6 +132,13 @@ def build_parser() -> argparse.ArgumentParser:
     db_geocode_parser.add_argument("--sleep-seconds", type=float, default=0.1)
     db_geocode_parser.add_argument("--overwrite", action="store_true")
 
+    db_school_parser = subparsers.add_parser(
+        "db-import-school-distances",
+        help="Fill elementary and middle school distance fields from a school location CSV.",
+    )
+    db_school_parser.add_argument("--input", required=True)
+    db_school_parser.add_argument("--source-name", default="school_location")
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -159,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_complex_conditions(args)
     if args.command == "db-geocode-complexes":
         return _handle_db_geocode_complexes(args)
+    if args.command == "db-import-school-distances":
+        return _handle_db_import_school_distances(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -403,6 +413,17 @@ def _handle_db_geocode_complexes(args: argparse.Namespace) -> int:
         limit=args.limit,
         overwrite=args.overwrite,
         sleep_seconds=args.sleep_seconds,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_school_distances(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_school_distance_snapshots_csv(
+        connection,
+        args.input,
+        source_name=args.source_name,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
