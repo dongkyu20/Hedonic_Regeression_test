@@ -227,12 +227,15 @@ class CliTests(unittest.TestCase):
                 "data/schools.csv",
                 "--source-name",
                 "school_location",
+                "--radius-m",
+                "750",
             ]
         )
 
         self.assertEqual(args.command, "db-import-school-distances")
         self.assertEqual(args.input, "data/schools.csv")
         self.assertEqual(args.source_name, "school_location")
+        self.assertEqual(args.radius_m, 750)
 
     def test_db_import_subway_distances_command_parses_inputs(self):
         args = build_parser().parse_args(
@@ -545,12 +548,15 @@ class CliTests(unittest.TestCase):
                     "data/schools.csv",
                     "--source-name",
                     "school_location",
+                    "--radius-m",
+                    "750",
                 ]
             )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(import_mock.call_args.args[1], "data/schools.csv")
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "school_location")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
 
     def test_db_import_subway_distances_uses_kakao_geocoder_and_import_helper(self):

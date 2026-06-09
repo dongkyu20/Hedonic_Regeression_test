@@ -12,7 +12,7 @@ SUPPORTED_EDUCATION_OFFICES = {
     "부산광역시교육청": "busan",
 }
 
-SUPPORTED_SCHOOL_LEVELS = {"초등학교", "중학교"}
+SUPPORTED_SCHOOL_LEVELS = {"초등학교", "중학교", "고등학교"}
 
 REQUIRED_SCHOOL_COLUMNS = (
     "학교ID",
@@ -46,12 +46,16 @@ INSERT INTO living_environment_snapshots (
   complex_id,
   snapshot_yyyymm,
   source_name,
+  radius_m,
   nearest_elementary_school_distance_m,
-  nearest_middle_school_distance_m
-) VALUES (%s, %s, %s, %s, %s)
+  nearest_middle_school_distance_m,
+  school_count_radius
+) VALUES (%s, %s, %s, %s, %s, %s, %s)
 ON DUPLICATE KEY UPDATE
+  radius_m = VALUES(radius_m),
   nearest_elementary_school_distance_m = VALUES(nearest_elementary_school_distance_m),
   nearest_middle_school_distance_m = VALUES(nearest_middle_school_distance_m),
+  school_count_radius = VALUES(school_count_radius),
   updated_at = CURRENT_TIMESTAMP
 """
 
@@ -70,6 +74,7 @@ class SchoolLocation:
 class SchoolDistanceResult:
     elementary_distance_m: float | None
     middle_distance_m: float | None
+    school_count_radius: int
 
 
 def read_school_locations_csv(path: str | Path) -> list[SchoolLocation]:
@@ -112,18 +117,24 @@ def nearest_school_distances(
     latitude: float,
     longitude: float,
     schools: list[SchoolLocation],
+    *,
+    radius_m: int = 1000,
 ) -> SchoolDistanceResult:
     nearest_elementary: float | None = None
     nearest_middle: float | None = None
+    school_count_radius = 0
     for school in schools:
         distance_m = haversine_distance_m(latitude, longitude, school.latitude, school.longitude)
         if school.school_level == "초등학교":
             nearest_elementary = _min_optional(nearest_elementary, distance_m)
         elif school.school_level == "중학교":
             nearest_middle = _min_optional(nearest_middle, distance_m)
+        if distance_m <= radius_m:
+            school_count_radius += 1
     return SchoolDistanceResult(
         elementary_distance_m=nearest_elementary,
         middle_distance_m=nearest_middle,
+        school_count_radius=school_count_radius,
     )
 
 
@@ -153,6 +164,7 @@ def import_school_distance_snapshots_csv(
     csv_path: str | Path,
     *,
     source_name: str = "school_location",
+    radius_m: int = 1000,
 ) -> dict[str, int]:
     schools = read_school_locations_csv(csv_path)
     schools_by_city = _schools_by_city(schools)
@@ -161,6 +173,7 @@ def import_school_distance_snapshots_csv(
         "source_rows": len(schools),
         "elementary_school_rows": sum(1 for school in schools if school.school_level == "초등학교"),
         "middle_school_rows": sum(1 for school in schools if school.school_level == "중학교"),
+        "high_school_rows": sum(1 for school in schools if school.school_level == "고등학교"),
         "candidate_complexes": 0,
         "complexes_with_distances": 0,
         "skipped_no_months": 0,
@@ -181,8 +194,13 @@ def import_school_distance_snapshots_csv(
                 float(complex_row["latitude"]),
                 float(complex_row["longitude"]),
                 schools_by_city.get(str(complex_row["city_code"]), []),
+                radius_m=radius_m,
             )
-            if distances.elementary_distance_m is None and distances.middle_distance_m is None:
+            if (
+                distances.elementary_distance_m is None
+                and distances.middle_distance_m is None
+                and distances.school_count_radius == 0
+            ):
                 stats["skipped_no_school_distance"] += 1
                 continue
 
@@ -194,8 +212,10 @@ def import_school_distance_snapshots_csv(
                         complex_row["complex_id"],
                         deal_month,
                         source_name,
+                        radius_m,
                         distances.elementary_distance_m,
                         distances.middle_distance_m,
+                        distances.school_count_radius,
                     ),
                 )
                 stats["snapshot_rows"] += 1

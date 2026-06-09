@@ -44,6 +44,12 @@ class MysqlSchemaTests(unittest.TestCase):
 
         self.assertNotIn("monthly_maintenance_fee_krw", sql)
 
+    def test_living_environment_schema_excludes_nearest_high_school_distance(self):
+        sql = SCHEMA_SQL.read_text(encoding="utf-8")
+
+        self.assertNotIn("nearest_high_school_distance_m", sql)
+        self.assertIn("school_count_radius", sql)
+
     def test_training_view_joins_property_condition_sources_once(self):
         sql = SCHEMA_SQL.read_text(encoding="utf-8")
 

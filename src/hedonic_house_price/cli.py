@@ -136,10 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     db_school_parser = subparsers.add_parser(
         "db-import-school-distances",
-        help="Fill elementary and middle school distance fields from a school location CSV.",
+        help="Fill elementary/middle school distance and school radius-count fields from a school location CSV.",
     )
     db_school_parser.add_argument("--input", required=True)
     db_school_parser.add_argument("--source-name", default="school_location")
+    db_school_parser.add_argument("--radius-m", type=int, default=1000)
 
     db_subway_parser = subparsers.add_parser(
         "db-import-subway-distances",
@@ -453,6 +454,7 @@ def _handle_db_import_school_distances(args: argparse.Namespace) -> int:
         connection,
         args.input,
         source_name=args.source_name,
+        radius_m=args.radius_m,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

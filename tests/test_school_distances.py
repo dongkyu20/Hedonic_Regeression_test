@@ -13,7 +13,7 @@ from hedonic_house_price.school_distances import (
 
 
 class SchoolDistanceTests(unittest.TestCase):
-    def test_read_school_locations_csv_filters_supported_active_elementary_and_middle_schools(self):
+    def test_read_school_locations_csv_filters_supported_active_elementary_middle_and_high_schools(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "schools.csv"
             with path.open("w", encoding="utf-8", newline="") as handle:
@@ -42,20 +42,23 @@ class SchoolDistanceTests(unittest.TestCase):
             [
                 SchoolLocation("S1", "서울초", "초등학교", "seoul", 37.5, 127.0),
                 SchoolLocation("S2", "부산중", "중학교", "busan", 35.1, 129.0),
+                SchoolLocation("S3", "서울고", "고등학교", "seoul", 37.6, 127.1),
             ],
         )
 
-    def test_nearest_school_distances_returns_elementary_and_middle_distances(self):
+    def test_nearest_school_distances_returns_elementary_middle_distances_and_school_count(self):
         schools = [
             SchoolLocation("E1", "먼초", "초등학교", "seoul", 37.52, 127.0),
             SchoolLocation("E2", "가까운초", "초등학교", "seoul", 37.5005, 127.0),
             SchoolLocation("M1", "가까운중", "중학교", "seoul", 37.501, 127.0),
+            SchoolLocation("H1", "가까운고", "고등학교", "seoul", 37.5015, 127.0),
         ]
 
-        distances = nearest_school_distances(37.5, 127.0, schools)
+        distances = nearest_school_distances(37.5, 127.0, schools, radius_m=200)
 
         self.assertLess(distances.elementary_distance_m, 60)
         self.assertLess(distances.middle_distance_m, 120)
+        self.assertEqual(distances.school_count_radius, 3)
 
     def test_haversine_distance_m_is_zero_for_same_coordinate(self):
         self.assertEqual(haversine_distance_m(37.5, 127.0, 37.5, 127.0), 0.0)
@@ -78,6 +81,7 @@ class SchoolDistanceTests(unittest.TestCase):
                 )
                 writer.writerow(["S1", "가까운초", "초등학교", "운영", "서울특별시교육청", "37.5005", "127.0"])
                 writer.writerow(["S2", "가까운중", "중학교", "운영", "서울특별시교육청", "37.501", "127.0"])
+                writer.writerow(["S3", "가까운고", "고등학교", "운영", "서울특별시교육청", "37.5015", "127.0"])
 
             connection = FakeConnection(
                 [
@@ -98,9 +102,10 @@ class SchoolDistanceTests(unittest.TestCase):
         self.assertEqual(result["snapshot_rows"], 2)
         self.assertEqual(connection.commits, 1)
         first_params = connection.cursor_obj.insert_params[0]
-        self.assertEqual(first_params[:3], (10, "202505", "school_location"))
-        self.assertLess(first_params[3], 60)
-        self.assertLess(first_params[4], 120)
+        self.assertEqual(first_params[:4], (10, "202505", "school_location", 1000))
+        self.assertLess(first_params[4], 60)
+        self.assertLess(first_params[5], 120)
+        self.assertEqual(first_params[6], 3)
 
 
 class FakeCursor:
