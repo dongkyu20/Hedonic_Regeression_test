@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import difflib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,13 @@ REQUIRED_COMPLEX_INFO_COLUMNS = (
     "법정동주소",
     "도로명주소",
 )
+
+APARTMENT_LIKE_COMPLEX_CATEGORIES = {
+    "아파트",
+    "주상복합",
+    "도시형 생활주택(아파트)",
+    "도시형 생활주택(주상복합)",
+}
 
 SELECT_COMPLEXES_SQL = """
 SELECT
@@ -47,6 +55,17 @@ SET
 WHERE complex_id = %s
 """
 
+RESET_COMPLEX_ADDRESS_SQL = """
+UPDATE housing_complexes c
+JOIN administrative_regions r ON r.region_id = c.region_id
+SET
+  c.road_address = NULL,
+  c.jibun_address = NULL,
+  c.updated_at = CURRENT_TIMESTAMP
+WHERE c.property_type = 'apartment'
+  AND r.city_code IN ('seoul', 'busan')
+"""
+
 
 @dataclass(frozen=True)
 class ComplexBasicInfo:
@@ -65,10 +84,30 @@ class ComplexBasicInfo:
 class ComplexMatch:
     info: ComplexBasicInfo | None
     kind: str
+    score: float = 0.0
 
 
 def normalize_complex_name(value: str) -> str:
     return re.sub(r"[\s·ㆍ\-_()（）\[\]{}]+", "", (value or "").strip().lower())
+
+
+def normalize_variant_complex_name(value: str) -> str:
+    normalized = normalize_complex_name(value)
+    replacements = (
+        ("에스케이", "sk"),
+        ("지에스", "gs"),
+        ("엘에이치", "lh"),
+        ("이편한세상", "e편한세상"),
+    )
+    for old, new in replacements:
+        normalized = normalized.replace(old, new)
+    for suffix in ("아파트", "apt", "분양", "임대", "공공임대", "영구임대", "민간임대"):
+        normalized = normalized.replace(suffix, "")
+    return normalized
+
+
+def is_apartment_like_category(value: str) -> bool:
+    return (value or "").strip() in APARTMENT_LIKE_COMPLEX_CATEGORIES
 
 
 def read_complex_basic_info_csv(path: str | Path) -> list[ComplexBasicInfo]:
@@ -149,15 +188,33 @@ def _find_match_in_indexes(
             info=None,
             kind="ambiguous_dong" if saw_ambiguous_dong else "ambiguous_district",
         )
-    return ComplexMatch(info=None, kind="unmatched")
+
+    return _find_name_variant_match(
+        by_dong,
+        by_district,
+        city_code=city_code,
+        district_name=district_name,
+        legal_dong_names=legal_dong_names,
+        complex_name=complex_name,
+    )
 
 
-def import_complex_basic_info_csv(connection: Any, csv_path: str | Path) -> dict[str, int]:
-    candidates = read_complex_basic_info_csv(csv_path)
+def import_complex_basic_info_csv(
+    connection: Any,
+    csv_path: str | Path,
+    *,
+    reset_addresses: bool = False,
+) -> dict[str, int]:
+    candidates = [
+        candidate
+        for candidate in read_complex_basic_info_csv(csv_path)
+        if is_apartment_like_category(candidate.complex_category)
+    ]
     by_dong, by_district = _build_match_indexes(candidates)
     cursor = connection.cursor(dictionary=True)
     stats = {
         "source_rows": len(candidates),
+        "reset_complex_addresses": 0,
         "db_complexes": 0,
         "matched_complexes": 0,
         "updated_complexes": 0,
@@ -166,8 +223,14 @@ def import_complex_basic_info_csv(connection: Any, csv_path: str | Path) -> dict
         "empty_address_matches": 0,
         "dong_matches": 0,
         "district_unique_matches": 0,
+        "likely_name_variant_matches": 0,
+        "possible_name_variant_matches": 0,
     }
     try:
+        if reset_addresses:
+            cursor.execute(RESET_COMPLEX_ADDRESS_SQL)
+            stats["reset_complex_addresses"] = cursor.rowcount
+
         cursor.execute(SELECT_COMPLEXES_SQL)
         for complex_row in cursor.fetchall():
             stats["db_complexes"] += 1
@@ -191,6 +254,10 @@ def import_complex_basic_info_csv(connection: Any, csv_path: str | Path) -> dict
                 stats["dong_matches"] += 1
             elif match.kind == "district_unique":
                 stats["district_unique_matches"] += 1
+            elif match.kind == "likely_name_variant":
+                stats["likely_name_variant_matches"] += 1
+            elif match.kind == "possible_name_variant":
+                stats["possible_name_variant_matches"] += 1
 
             if not match.info.road_address and not match.info.jibun_address:
                 stats["empty_address_matches"] += 1
@@ -252,6 +319,60 @@ def _build_match_indexes(
             [],
         ).append(row)
     return by_dong, by_district
+
+
+def _find_name_variant_match(
+    by_dong: dict[tuple[str, str, str, str], list[ComplexBasicInfo]],
+    by_district: dict[tuple[str, str, str], list[ComplexBasicInfo]],
+    *,
+    city_code: str,
+    district_name: str,
+    legal_dong_names: list[str],
+    complex_name: str,
+) -> ComplexMatch:
+    candidates_by_code: dict[str, ComplexBasicInfo] = {}
+    for (candidate_city, candidate_district, candidate_dong, _), candidates in by_dong.items():
+        if candidate_city != city_code or candidate_district != district_name:
+            continue
+        if candidate_dong not in legal_dong_names:
+            continue
+        for candidate in candidates:
+            candidates_by_code[candidate.source_complex_code] = candidate
+
+    for (candidate_city, candidate_district, _), candidates in by_district.items():
+        if candidate_city != city_code or candidate_district != district_name:
+            continue
+        for candidate in candidates:
+            candidates_by_code.setdefault(candidate.source_complex_code, candidate)
+
+    best_score = 0.0
+    best_candidates: list[ComplexBasicInfo] = []
+    for candidate in candidates_by_code.values():
+        score = _name_variant_score(complex_name, candidate.complex_name)
+        if score > best_score:
+            best_score = score
+            best_candidates = [candidate]
+        elif abs(score - best_score) < 0.0001:
+            best_candidates.append(candidate)
+
+    if best_score < 0.72:
+        return ComplexMatch(info=None, kind="unmatched", score=best_score)
+    if len(best_candidates) != 1:
+        return ComplexMatch(info=None, kind="ambiguous_name_variant", score=best_score)
+
+    kind = "likely_name_variant" if best_score >= 0.9 else "possible_name_variant"
+    return ComplexMatch(info=best_candidates[0], kind=kind, score=best_score)
+
+
+def _name_variant_score(left: str, right: str) -> float:
+    lhs = normalize_variant_complex_name(left)
+    rhs = normalize_variant_complex_name(right)
+    if not lhs or not rhs:
+        return 0.0
+    score = difflib.SequenceMatcher(None, lhs, rhs).ratio()
+    if lhs in rhs or rhs in lhs:
+        score = max(score, 0.92)
+    return score
 
 
 def _split_legal_dongs(value: str | None) -> list[str]:

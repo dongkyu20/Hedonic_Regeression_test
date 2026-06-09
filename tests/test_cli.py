@@ -172,11 +172,13 @@ class CliTests(unittest.TestCase):
                 "db-import-complex-info",
                 "--input",
                 "data/complex_basic_info.csv",
+                "--reset-addresses",
             ]
         )
 
         self.assertEqual(args.command, "db-import-complex-info")
         self.assertEqual(args.input, "data/complex_basic_info.csv")
+        self.assertTrue(args.reset_addresses)
 
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
@@ -363,12 +365,13 @@ class CliTests(unittest.TestCase):
             patch(
                 "hedonic_house_price.cli.import_complex_basic_info_csv",
                 return_value={"matched_complexes": 3, "updated_complexes": 2},
-            ),
+            ) as import_mock,
             redirect_stdout(stdout),
         ):
-            exit_code = main(["db-import-complex-info", "--input", "data/complex_basic_info.csv"])
+            exit_code = main(["db-import-complex-info", "--input", "data/complex_basic_info.csv", "--reset-addresses"])
 
         self.assertEqual(exit_code, 0)
+        self.assertTrue(import_mock.call_args.kwargs["reset_addresses"])
         self.assertIn('"matched_complexes": 3', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):

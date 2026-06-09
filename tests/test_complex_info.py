@@ -6,6 +6,7 @@ from pathlib import Path
 from hedonic_house_price.complex_info import (
     ComplexBasicInfo,
     find_complex_basic_info_match,
+    is_apartment_like_category,
     normalize_complex_name,
     read_complex_basic_info_csv,
 )
@@ -14,6 +15,12 @@ from hedonic_house_price.complex_info import (
 class ComplexInfoTests(unittest.TestCase):
     def test_normalize_complex_name_removes_common_spacing_and_symbols(self):
         self.assertEqual(normalize_complex_name("경희궁 자이(3단지)"), "경희궁자이3단지")
+
+    def test_is_apartment_like_category_accepts_apartment_and_mixed_use_only(self):
+        self.assertTrue(is_apartment_like_category("아파트"))
+        self.assertTrue(is_apartment_like_category("주상복합"))
+        self.assertFalse(is_apartment_like_category("연립주택"))
+        self.assertFalse(is_apartment_like_category("다세대"))
 
     def test_read_complex_basic_info_csv_skips_notice_row_and_filters_supported_cities(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -87,6 +94,78 @@ class ComplexInfoTests(unittest.TestCase):
 
         self.assertIsNone(match.info)
         self.assertEqual(match.kind, "ambiguous_district")
+
+    def test_find_complex_basic_info_match_accepts_likely_name_variant(self):
+        candidates = [
+            ComplexBasicInfo(
+                "seoul",
+                "서울특별시",
+                "송파구",
+                "가락동",
+                "A1",
+                "헬리오시티아파트",
+                "아파트",
+                "서울 송파구 가락동",
+                "서울 송파구 송파대로",
+            )
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="송파구",
+            legal_dong_names=["가락동"],
+            complex_name="헬리오시티",
+        )
+
+        self.assertIsNotNone(match.info)
+        self.assertEqual(match.kind, "likely_name_variant")
+        self.assertGreaterEqual(match.score, 0.9)
+
+    def test_find_complex_basic_info_match_accepts_possible_name_variant(self):
+        candidates = [
+            ComplexBasicInfo(
+                "seoul",
+                "서울특별시",
+                "중구",
+                "신당동",
+                "A1",
+                "래미안신당하이베르",
+                "아파트",
+                "서울 중구 신당동",
+                "서울 중구 다산로",
+            )
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="중구",
+            legal_dong_names=["신당동"],
+            complex_name="래미안하이베르",
+        )
+
+        self.assertIsNotNone(match.info)
+        self.assertEqual(match.kind, "possible_name_variant")
+        self.assertGreaterEqual(match.score, 0.72)
+        self.assertLess(match.score, 0.9)
+
+    def test_find_complex_basic_info_match_rejects_tied_name_variant_candidates(self):
+        candidates = [
+            ComplexBasicInfo("seoul", "서울특별시", "송파구", "신천동", "A1", "잠실파크리오", "아파트", "지번1", "도로1"),
+            ComplexBasicInfo("seoul", "서울특별시", "송파구", "신천동", "A2", "신천파크리오", "아파트", "지번2", "도로2"),
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="송파구",
+            legal_dong_names=["신천동"],
+            complex_name="파크리오",
+        )
+
+        self.assertIsNone(match.info)
+        self.assertEqual(match.kind, "ambiguous_name_variant")
 
 
 if __name__ == "__main__":

@@ -97,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enrich MySQL apartment complexes from a K-apt complex basic info CSV.",
     )
     db_complex_info_parser.add_argument("--input", required=True)
+    db_complex_info_parser.add_argument(
+        "--reset-addresses",
+        action="store_true",
+        help="Clear Seoul/Busan apartment complex addresses before applying K-apt enrichment.",
+    )
 
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
@@ -332,7 +337,11 @@ def _handle_db_import_csv(args: argparse.Namespace) -> int:
 
 def _handle_db_import_complex_info(args: argparse.Namespace) -> int:
     connection = get_mysql_connection()
-    result = import_complex_basic_info_csv(connection, args.input)
+    result = import_complex_basic_info_csv(
+        connection,
+        args.input,
+        reset_addresses=args.reset_addresses,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
