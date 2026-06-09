@@ -14,6 +14,7 @@ from .db_import import import_transactions_csv
 from .db_maintenance import clear_transaction_data, refresh_transaction_derived_snapshots
 from .db_training import read_transactions_from_training_view
 from .dates import recent_months
+from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
 from .gui import run_gui_server
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
@@ -119,6 +120,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also accept ambiguous and low-confidence same-dong candidate matches.",
     )
 
+    db_geocode_parser = subparsers.add_parser(
+        "db-geocode-complexes",
+        help="Fill missing apartment complex coordinates by geocoding enriched addresses.",
+    )
+    db_geocode_parser.add_argument("--provider", choices=["kakao"], default="kakao")
+    db_geocode_parser.add_argument("--api-key", default=None, help="Provider API key. Defaults to KAKAO_REST_API_KEY.")
+    db_geocode_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None)
+    db_geocode_parser.add_argument("--limit", type=int, default=None)
+    db_geocode_parser.add_argument("--sleep-seconds", type=float, default=0.1)
+    db_geocode_parser.add_argument("--overwrite", action="store_true")
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -145,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_complex_info(args)
     if args.command == "db-import-complex-conditions":
         return _handle_db_import_complex_conditions(args)
+    if args.command == "db-geocode-complexes":
+        return _handle_db_geocode_complexes(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -371,6 +385,24 @@ def _handle_db_import_complex_conditions(args: argparse.Namespace) -> int:
         connection,
         args.input,
         accept_remaining_matches=args.accept_remaining_matches,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_geocode_complexes(args: argparse.Namespace) -> int:
+    if args.provider != "kakao":
+        raise ValueError(f"unsupported geocoding provider: {args.provider}")
+    api_key = args.api_key or get_kakao_rest_api_key()
+    geocoder = KakaoGeocoder(api_key)
+    connection = get_mysql_connection()
+    result = geocode_missing_complex_coordinates(
+        connection,
+        geocoder,
+        city_code=args.city_code,
+        limit=args.limit,
+        overwrite=args.overwrite,
+        sleep_seconds=args.sleep_seconds,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

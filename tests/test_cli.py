@@ -196,6 +196,29 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.input, "data/complex_basic_info.csv")
         self.assertTrue(args.accept_remaining_matches)
 
+    def test_db_geocode_complexes_command_parses_options(self):
+        args = build_parser().parse_args(
+            [
+                "db-geocode-complexes",
+                "--provider",
+                "kakao",
+                "--city-code",
+                "seoul",
+                "--limit",
+                "100",
+                "--sleep-seconds",
+                "0.05",
+                "--overwrite",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-geocode-complexes")
+        self.assertEqual(args.provider, "kakao")
+        self.assertEqual(args.city_code, "seoul")
+        self.assertEqual(args.limit, 100)
+        self.assertEqual(args.sleep_seconds, 0.05)
+        self.assertTrue(args.overwrite)
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -421,6 +444,36 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(import_mock.call_args.kwargs["accept_remaining_matches"])
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_geocode_complexes_uses_kakao_geocoder(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.KakaoGeocoder") as geocoder_cls,
+            patch("hedonic_house_price.cli.get_kakao_rest_api_key", return_value="kakao-key"),
+            patch(
+                "hedonic_house_price.cli.geocode_missing_complex_coordinates",
+                return_value={"updated_complexes": 7},
+            ) as geocode_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-geocode-complexes",
+                    "--city-code",
+                    "busan",
+                    "--limit",
+                    "10",
+                    "--sleep-seconds",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        geocoder_cls.assert_called_once_with("kakao-key")
+        self.assertEqual(geocode_mock.call_args.kwargs["city_code"], "busan")
+        self.assertEqual(geocode_mock.call_args.kwargs["limit"], 10)
+        self.assertIn('"updated_complexes": 7', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(
