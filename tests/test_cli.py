@@ -257,6 +257,21 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.radius_m, 750)
         self.assertEqual(args.sleep_seconds, 0)
 
+    def test_db_import_access_times_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-access-times",
+                "--input",
+                "data/access_times.xlsx",
+                "--source-name",
+                "transport_access",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-access-times")
+        self.assertEqual(args.input, "data/access_times.xlsx")
+        self.assertEqual(args.source_name, "transport_access")
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -570,6 +585,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
         self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_access_times_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_average_access_time_snapshots_xlsx",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-access-times",
+                    "--input",
+                    "data/access_times.xlsx",
+                    "--source-name",
+                    "transport_access",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/access_times.xlsx")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
