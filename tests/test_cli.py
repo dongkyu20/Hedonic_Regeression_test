@@ -234,6 +234,29 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.input, "data/schools.csv")
         self.assertEqual(args.source_name, "school_location")
 
+    def test_db_import_subway_distances_command_parses_inputs(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-subway-distances",
+                "--input",
+                "data/seoul_gyeonggi_subway.csv",
+                "--input",
+                "data/seoul_metro.csv",
+                "--source-name",
+                "transport_access",
+                "--radius-m",
+                "750",
+                "--sleep-seconds",
+                "0",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-subway-distances")
+        self.assertEqual(args.input, ["data/seoul_gyeonggi_subway.csv", "data/seoul_metro.csv"])
+        self.assertEqual(args.source_name, "transport_access")
+        self.assertEqual(args.radius_m, 750)
+        self.assertEqual(args.sleep_seconds, 0)
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -513,6 +536,40 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(import_mock.call_args.args[1], "data/schools.csv")
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "school_location")
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_subway_distances_uses_kakao_geocoder_and_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.KakaoGeocoder") as geocoder_cls,
+            patch("hedonic_house_price.cli.get_kakao_rest_api_key", return_value="kakao-key"),
+            patch(
+                "hedonic_house_price.cli.import_subway_distance_snapshots_csvs",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-subway-distances",
+                    "--input",
+                    "data/seoul_gyeonggi_subway.csv",
+                    "--input",
+                    "data/seoul_metro.csv",
+                    "--radius-m",
+                    "750",
+                    "--sleep-seconds",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        geocoder_cls.assert_called_once_with("kakao-key")
+        self.assertEqual(import_mock.call_args.args[1], ["data/seoul_gyeonggi_subway.csv", "data/seoul_metro.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
+        self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):

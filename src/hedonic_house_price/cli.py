@@ -19,6 +19,7 @@ from .gui import run_gui_server
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
 from .school_distances import import_school_distance_snapshots_csv
+from .subway_distances import import_subway_distance_snapshots_csvs
 from .transactions import normalize_property_type, read_transactions_csv, write_transactions_csv
 
 
@@ -139,6 +140,22 @@ def build_parser() -> argparse.ArgumentParser:
     db_school_parser.add_argument("--input", required=True)
     db_school_parser.add_argument("--source-name", default="school_location")
 
+    db_subway_parser = subparsers.add_parser(
+        "db-import-subway-distances",
+        help="Fill subway distance and radius-count fields from subway station CSVs.",
+    )
+    db_subway_parser.add_argument(
+        "--input",
+        required=True,
+        action="append",
+        help="Subway station CSV path. Repeat for multiple files.",
+    )
+    db_subway_parser.add_argument("--source-name", default="transport_access")
+    db_subway_parser.add_argument("--radius-m", type=int, default=1000)
+    db_subway_parser.add_argument("--provider", choices=["kakao"], default="kakao")
+    db_subway_parser.add_argument("--api-key", default=None, help="Provider API key. Defaults to KAKAO_REST_API_KEY.")
+    db_subway_parser.add_argument("--sleep-seconds", type=float, default=0.1)
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -169,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_geocode_complexes(args)
     if args.command == "db-import-school-distances":
         return _handle_db_import_school_distances(args)
+    if args.command == "db-import-subway-distances":
+        return _handle_db_import_subway_distances(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -424,6 +443,24 @@ def _handle_db_import_school_distances(args: argparse.Namespace) -> int:
         connection,
         args.input,
         source_name=args.source_name,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_subway_distances(args: argparse.Namespace) -> int:
+    if args.provider != "kakao":
+        raise ValueError(f"unsupported geocoding provider: {args.provider}")
+    api_key = args.api_key or get_kakao_rest_api_key()
+    geocoder = KakaoGeocoder(api_key)
+    connection = get_mysql_connection()
+    result = import_subway_distance_snapshots_csvs(
+        connection,
+        args.input,
+        geocoder,
+        source_name=args.source_name,
+        radius_m=args.radius_m,
+        sleep_seconds=args.sleep_seconds,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
