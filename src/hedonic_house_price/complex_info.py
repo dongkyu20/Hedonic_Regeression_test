@@ -147,6 +147,7 @@ def find_complex_basic_info_match(
     district_name: str,
     legal_dong_names: list[str],
     complex_name: str,
+    accept_remaining_matches: bool = False,
 ) -> ComplexMatch:
     by_dong, by_district = _build_match_indexes(candidates)
     return _find_match_in_indexes(
@@ -156,6 +157,7 @@ def find_complex_basic_info_match(
         district_name=district_name,
         legal_dong_names=legal_dong_names,
         complex_name=complex_name,
+        accept_remaining_matches=accept_remaining_matches,
     )
 
 
@@ -167,6 +169,7 @@ def _find_match_in_indexes(
     district_name: str,
     legal_dong_names: list[str],
     complex_name: str,
+    accept_remaining_matches: bool = False,
 ) -> ComplexMatch:
     normalized_name = normalize_complex_name(complex_name)
 
@@ -196,6 +199,7 @@ def _find_match_in_indexes(
         district_name=district_name,
         legal_dong_names=legal_dong_names,
         complex_name=complex_name,
+        accept_remaining_matches=accept_remaining_matches,
     )
 
 
@@ -204,6 +208,7 @@ def import_complex_basic_info_csv(
     csv_path: str | Path,
     *,
     reset_addresses: bool = False,
+    accept_remaining_matches: bool = False,
 ) -> dict[str, int]:
     candidates = [
         candidate
@@ -225,6 +230,8 @@ def import_complex_basic_info_csv(
         "district_unique_matches": 0,
         "likely_name_variant_matches": 0,
         "possible_name_variant_matches": 0,
+        "ambiguous_name_variant_matches": 0,
+        "counterpart_has_dong_but_name_absent_matches": 0,
     }
     try:
         if reset_addresses:
@@ -241,6 +248,7 @@ def import_complex_basic_info_csv(
                 district_name=complex_row["district_name"],
                 legal_dong_names=_split_legal_dongs(complex_row.get("legal_dongs")),
                 complex_name=complex_row["complex_name"],
+                accept_remaining_matches=accept_remaining_matches,
             )
             if match.info is None:
                 if match.kind.startswith("ambiguous"):
@@ -258,6 +266,10 @@ def import_complex_basic_info_csv(
                 stats["likely_name_variant_matches"] += 1
             elif match.kind == "possible_name_variant":
                 stats["possible_name_variant_matches"] += 1
+            elif match.kind == "ambiguous_name_variant":
+                stats["ambiguous_name_variant_matches"] += 1
+            elif match.kind == "counterpart_has_dong_but_name_absent":
+                stats["counterpart_has_dong_but_name_absent_matches"] += 1
 
             if not match.info.road_address and not match.info.jibun_address:
                 stats["empty_address_matches"] += 1
@@ -329,39 +341,78 @@ def _find_name_variant_match(
     district_name: str,
     legal_dong_names: list[str],
     complex_name: str,
+    accept_remaining_matches: bool,
 ) -> ComplexMatch:
-    candidates_by_code: dict[str, ComplexBasicInfo] = {}
+    candidates_by_code: dict[str, tuple[ComplexBasicInfo, str]] = {}
     for (candidate_city, candidate_district, candidate_dong, _), candidates in by_dong.items():
         if candidate_city != city_code or candidate_district != district_name:
             continue
         if candidate_dong not in legal_dong_names:
             continue
         for candidate in candidates:
-            candidates_by_code[candidate.source_complex_code] = candidate
+            candidates_by_code[candidate.source_complex_code] = (candidate, "same_legal_dong")
 
     for (candidate_city, candidate_district, _), candidates in by_district.items():
         if candidate_city != city_code or candidate_district != district_name:
             continue
         for candidate in candidates:
-            candidates_by_code.setdefault(candidate.source_complex_code, candidate)
+            candidates_by_code.setdefault(candidate.source_complex_code, (candidate, "same_district"))
 
     best_score = 0.0
-    best_candidates: list[ComplexBasicInfo] = []
-    for candidate in candidates_by_code.values():
+    best_candidates: list[tuple[ComplexBasicInfo, str]] = []
+    for candidate, scope in candidates_by_code.values():
         score = _name_variant_score(complex_name, candidate.complex_name)
         if score > best_score:
             best_score = score
-            best_candidates = [candidate]
+            best_candidates = [(candidate, scope)]
         elif abs(score - best_score) < 0.0001:
-            best_candidates.append(candidate)
+            best_candidates.append((candidate, scope))
 
     if best_score < 0.72:
+        if accept_remaining_matches:
+            same_dong_match = _best_same_dong_candidate(complex_name, candidates_by_code)
+            if same_dong_match is not None:
+                candidate, score = same_dong_match
+                return ComplexMatch(
+                    info=candidate,
+                    kind="counterpart_has_dong_but_name_absent",
+                    score=score,
+                )
         return ComplexMatch(info=None, kind="unmatched", score=best_score)
     if len(best_candidates) != 1:
+        if accept_remaining_matches:
+            candidate = sorted(
+                (candidate for candidate, _ in best_candidates),
+                key=lambda item: item.source_complex_code,
+            )[0]
+            return ComplexMatch(info=candidate, kind="ambiguous_name_variant", score=best_score)
         return ComplexMatch(info=None, kind="ambiguous_name_variant", score=best_score)
 
     kind = "likely_name_variant" if best_score >= 0.9 else "possible_name_variant"
-    return ComplexMatch(info=best_candidates[0], kind=kind, score=best_score)
+    return ComplexMatch(info=best_candidates[0][0], kind=kind, score=best_score)
+
+
+def _best_same_dong_candidate(
+    complex_name: str,
+    candidates_by_code: dict[str, tuple[ComplexBasicInfo, str]],
+) -> tuple[ComplexBasicInfo, float] | None:
+    same_dong_candidates = [
+        candidate
+        for candidate, scope in candidates_by_code.values()
+        if scope == "same_legal_dong"
+    ]
+    if not same_dong_candidates:
+        return None
+
+    ranked = sorted(
+        (
+            (_name_variant_score(complex_name, candidate.complex_name), candidate)
+            for candidate in same_dong_candidates
+        ),
+        key=lambda item: (-item[0], item[1].source_complex_code),
+    )
+    best_score, best_candidate = ranked[0]
+    return best_candidate, best_score
 
 
 def _name_variant_score(left: str, right: str) -> float:

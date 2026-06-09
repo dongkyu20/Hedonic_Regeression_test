@@ -24,6 +24,8 @@ class MysqlSchemaTests(unittest.TestCase):
 
         self.assertIn("CREATE OR REPLACE VIEW model_training_features", sql)
         self.assertIn("city_code VARCHAR(16) NOT NULL", sql)
+        self.assertIn("road_address VARCHAR(512) NULL", sql)
+        self.assertIn("jibun_address VARCHAR(512) NULL", sql)
         self.assertIn("price_krw BIGINT UNSIGNED GENERATED ALWAYS AS", sql)
         self.assertIn("CONSTRAINT fk_transactions_region", sql)
         self.assertIn("KEY idx_transactions_city_month", sql)

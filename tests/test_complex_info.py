@@ -167,6 +167,78 @@ class ComplexInfoTests(unittest.TestCase):
         self.assertIsNone(match.info)
         self.assertEqual(match.kind, "ambiguous_name_variant")
 
+    def test_find_complex_basic_info_match_accepts_tied_name_variant_when_enabled(self):
+        candidates = [
+            ComplexBasicInfo("seoul", "서울특별시", "송파구", "신천동", "A2", "신천파크리오", "아파트", "지번2", "도로2"),
+            ComplexBasicInfo("seoul", "서울특별시", "송파구", "신천동", "A1", "잠실파크리오", "아파트", "지번1", "도로1"),
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="송파구",
+            legal_dong_names=["신천동"],
+            complex_name="파크리오",
+            accept_remaining_matches=True,
+        )
+
+        self.assertIsNotNone(match.info)
+        self.assertEqual(match.kind, "ambiguous_name_variant")
+        self.assertEqual(match.info.source_complex_code, "A1")
+
+    def test_find_complex_basic_info_match_accepts_low_confidence_same_dong_when_enabled(self):
+        candidates = [
+            ComplexBasicInfo("seoul", "서울특별시", "종로구", "창신동", "A1", "창신두산", "아파트", "지번1", "도로1"),
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="종로구",
+            legal_dong_names=["창신동"],
+            complex_name="브라운스톤창신",
+            accept_remaining_matches=True,
+        )
+
+        self.assertIsNotNone(match.info)
+        self.assertEqual(match.kind, "counterpart_has_dong_but_name_absent")
+        self.assertLess(match.score, 0.72)
+
+    def test_find_complex_basic_info_match_accepts_zero_score_same_dong_when_enabled(self):
+        candidates = [
+            ComplexBasicInfo("seoul", "서울특별시", "종로구", "창신동", "A1", "라마바", "아파트", "지번1", "도로1"),
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="종로구",
+            legal_dong_names=["창신동"],
+            complex_name="가나다",
+            accept_remaining_matches=True,
+        )
+
+        self.assertIsNotNone(match.info)
+        self.assertEqual(match.kind, "counterpart_has_dong_but_name_absent")
+        self.assertEqual(match.score, 0.0)
+
+    def test_find_complex_basic_info_match_does_not_accept_low_confidence_without_same_dong(self):
+        candidates = [
+            ComplexBasicInfo("seoul", "서울특별시", "종로구", "창신동", "A1", "창신두산", "아파트", "지번1", "도로1"),
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="seoul",
+            district_name="종로구",
+            legal_dong_names=["사직동"],
+            complex_name="광화문스페이스본",
+            accept_remaining_matches=True,
+        )
+
+        self.assertIsNone(match.info)
+        self.assertEqual(match.kind, "unmatched")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -102,6 +102,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Clear Seoul/Busan apartment complex addresses before applying K-apt enrichment.",
     )
+    db_complex_info_parser.add_argument(
+        "--accept-remaining-matches",
+        action="store_true",
+        help="Also accept ambiguous and low-confidence same-dong candidate matches.",
+    )
 
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
@@ -341,6 +346,7 @@ def _handle_db_import_complex_info(args: argparse.Namespace) -> int:
         connection,
         args.input,
         reset_addresses=args.reset_addresses,
+        accept_remaining_matches=args.accept_remaining_matches,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

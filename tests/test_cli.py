@@ -173,12 +173,14 @@ class CliTests(unittest.TestCase):
                 "--input",
                 "data/complex_basic_info.csv",
                 "--reset-addresses",
+                "--accept-remaining-matches",
             ]
         )
 
         self.assertEqual(args.command, "db-import-complex-info")
         self.assertEqual(args.input, "data/complex_basic_info.csv")
         self.assertTrue(args.reset_addresses)
+        self.assertTrue(args.accept_remaining_matches)
 
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
@@ -368,10 +370,19 @@ class CliTests(unittest.TestCase):
             ) as import_mock,
             redirect_stdout(stdout),
         ):
-            exit_code = main(["db-import-complex-info", "--input", "data/complex_basic_info.csv", "--reset-addresses"])
+            exit_code = main(
+                [
+                    "db-import-complex-info",
+                    "--input",
+                    "data/complex_basic_info.csv",
+                    "--reset-addresses",
+                    "--accept-remaining-matches",
+                ]
+            )
 
         self.assertEqual(exit_code, 0)
         self.assertTrue(import_mock.call_args.kwargs["reset_addresses"])
+        self.assertTrue(import_mock.call_args.kwargs["accept_remaining_matches"])
         self.assertIn('"matched_complexes": 3', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):

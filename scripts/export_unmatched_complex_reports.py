@@ -88,6 +88,7 @@ def _transaction_unmatched_rows(
             district_name=district_name,
             legal_dong_names=legal_dongs,
             complex_name=str(db_row["complex_name"]),
+            accept_remaining_matches=True,
         )
         if match.info is not None:
             continue
@@ -152,6 +153,7 @@ def _kapt_unmatched_rows(
             district_name=kapt_row.district_name,
             legal_dong_names=[kapt_row.legal_dong_name],
             complex_name=kapt_row.complex_name,
+            accept_remaining_matches=True,
         )
         if match.info is not None:
             continue
