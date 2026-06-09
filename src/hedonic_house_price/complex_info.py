@@ -91,6 +91,14 @@ def normalize_complex_name(value: str) -> str:
     return re.sub(r"[\s·ㆍ\-_()（）\[\]{}]+", "", (value or "").strip().lower())
 
 
+def normalize_legal_dong_name(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", (value or "").strip())
+    parts = normalized.split(" ")
+    if len(parts) >= 2 and parts[-2].endswith(("읍", "면")) and parts[-1].endswith("리"):
+        return parts[-1]
+    return normalized
+
+
 def normalize_variant_complex_name(value: str) -> str:
     normalized = normalize_complex_name(value)
     replacements = (
@@ -174,7 +182,7 @@ def _find_match_in_indexes(
     normalized_name = normalize_complex_name(complex_name)
 
     saw_ambiguous_dong = False
-    for legal_dong_name in legal_dong_names:
+    for legal_dong_name in _legal_dong_match_keys(legal_dong_names):
         key = (city_code, district_name, legal_dong_name, normalized_name)
         matches = by_dong.get(key, [])
         if len(matches) == 1:
@@ -322,10 +330,11 @@ def _build_match_indexes(
     by_district: dict[tuple[str, str, str], list[ComplexBasicInfo]] = {}
     for row in rows:
         normalized_name = normalize_complex_name(row.complex_name)
-        by_dong.setdefault(
-            (row.city_code, row.district_name, row.legal_dong_name, normalized_name),
-            [],
-        ).append(row)
+        for legal_dong_name in _legal_dong_match_keys([row.legal_dong_name]):
+            by_dong.setdefault(
+                (row.city_code, row.district_name, legal_dong_name, normalized_name),
+                [],
+            ).append(row)
         by_district.setdefault(
             (row.city_code, row.district_name, normalized_name),
             [],
@@ -344,10 +353,11 @@ def _find_name_variant_match(
     accept_remaining_matches: bool,
 ) -> ComplexMatch:
     candidates_by_code: dict[str, tuple[ComplexBasicInfo, str]] = {}
+    legal_dong_match_keys = _legal_dong_match_keys(legal_dong_names)
     for (candidate_city, candidate_district, candidate_dong, _), candidates in by_dong.items():
         if candidate_city != city_code or candidate_district != district_name:
             continue
-        if candidate_dong not in legal_dong_names:
+        if candidate_dong not in legal_dong_match_keys:
             continue
         for candidate in candidates:
             candidates_by_code[candidate.source_complex_code] = (candidate, "same_legal_dong")
@@ -430,3 +440,14 @@ def _split_legal_dongs(value: str | None) -> list[str]:
     if not value:
         return []
     return [item.strip() for item in value.split("\n") if item.strip()]
+
+
+def _legal_dong_match_keys(values: list[str]) -> set[str]:
+    keys: set[str] = set()
+    for value in values:
+        stripped = (value or "").strip()
+        if not stripped:
+            continue
+        keys.add(stripped)
+        keys.add(normalize_legal_dong_name(stripped))
+    return keys

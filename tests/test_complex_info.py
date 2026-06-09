@@ -8,6 +8,7 @@ from hedonic_house_price.complex_info import (
     find_complex_basic_info_match,
     is_apartment_like_category,
     normalize_complex_name,
+    normalize_legal_dong_name,
     read_complex_basic_info_csv,
 )
 
@@ -15,6 +16,13 @@ from hedonic_house_price.complex_info import (
 class ComplexInfoTests(unittest.TestCase):
     def test_normalize_complex_name_removes_common_spacing_and_symbols(self):
         self.assertEqual(normalize_complex_name("경희궁 자이(3단지)"), "경희궁자이3단지")
+
+    def test_normalize_legal_dong_name_collapses_eup_myeon_ri_suffixes(self):
+        self.assertEqual(normalize_legal_dong_name("정관읍 모전리"), "모전리")
+        self.assertEqual(normalize_legal_dong_name("철마면 고촌리"), "고촌리")
+        self.assertEqual(normalize_legal_dong_name("기장읍 청강리"), "청강리")
+        self.assertEqual(normalize_legal_dong_name("대저1동"), "대저1동")
+        self.assertEqual(normalize_legal_dong_name("회현동1가"), "회현동1가")
 
     def test_is_apartment_like_category_accepts_apartment_and_mixed_use_only(self):
         self.assertTrue(is_apartment_like_category("아파트"))
@@ -238,6 +246,22 @@ class ComplexInfoTests(unittest.TestCase):
 
         self.assertIsNone(match.info)
         self.assertEqual(match.kind, "unmatched")
+
+    def test_find_complex_basic_info_match_uses_normalized_legal_dong_names(self):
+        candidates = [
+            ComplexBasicInfo("busan", "부산광역시", "기장군", "모전리", "A1", "정관현진에버빌", "아파트", "지번1", "도로1"),
+        ]
+
+        match = find_complex_basic_info_match(
+            candidates,
+            city_code="busan",
+            district_name="기장군",
+            legal_dong_names=["정관읍 모전리"],
+            complex_name="정관현진에버빌",
+        )
+
+        self.assertIsNotNone(match.info)
+        self.assertEqual(match.kind, "dong")
 
 
 if __name__ == "__main__":
