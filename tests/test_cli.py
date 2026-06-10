@@ -374,6 +374,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.command, "db-feature-coverage")
         self.assertEqual(args.output_dir, "artifacts/coverage")
 
+    def test_model_diagnostics_command_parses_options(self):
+        args = build_parser().parse_args(
+            [
+                "model-diagnostics",
+                "--model",
+                "artifacts/model.pkl",
+                "--output-dir",
+                "artifacts/diagnostics",
+                "--city-code",
+                "seoul",
+                "--property-types",
+                "apartment",
+                "--validation-months",
+                "3",
+                "--min-segment-count",
+                "50",
+            ]
+        )
+
+        self.assertEqual(args.command, "model-diagnostics")
+        self.assertEqual(args.model, "artifacts/model.pkl")
+        self.assertEqual(args.output_dir, "artifacts/diagnostics")
+        self.assertEqual(args.city_code, "seoul")
+        self.assertEqual(args.property_types, "apartment")
+        self.assertEqual(args.validation_months, 3)
+        self.assertEqual(args.min_segment_count, 50)
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -524,6 +551,48 @@ class CliTests(unittest.TestCase):
             self.assertIn('"model_output"', stdout.getvalue())
         finally:
             os.unlink(model_path)
+
+    def test_model_diagnostics_uses_db_rows_and_model_artifact(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.load_model", return_value=object()) as load_mock,
+            patch("hedonic_house_price.cli.read_transactions_from_training_view", return_value=sample_transactions()) as read_mock,
+            patch(
+                "hedonic_house_price.cli.generate_residual_diagnostics",
+                return_value={
+                    "validation_rows": 2,
+                    "residual_segments_csv": "artifacts/model_diagnostics/residual_segments.csv",
+                    "top_error_segments_csv": "artifacts/model_diagnostics/top_error_segments.csv",
+                    "summary_markdown": "artifacts/model_diagnostics/diagnostics_summary.md",
+                },
+            ) as diagnostics_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "model-diagnostics",
+                    "--model",
+                    "artifacts/model.pkl",
+                    "--city-code",
+                    "seoul",
+                    "--property-types",
+                    "apartment",
+                    "--validation-months",
+                    "2",
+                    "--min-segment-count",
+                    "10",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        load_mock.assert_called_once_with("artifacts/model.pkl")
+        self.assertEqual(read_mock.call_args.kwargs["city_code"], "seoul")
+        self.assertEqual(read_mock.call_args.kwargs["property_types"], ["apartment"])
+        self.assertEqual(diagnostics_mock.call_args.args[1], sample_transactions())
+        self.assertEqual(diagnostics_mock.call_args.kwargs["validation_months"], 2)
+        self.assertEqual(diagnostics_mock.call_args.kwargs["min_segment_count"], 10)
+        self.assertIn('"summary_markdown"', stdout.getvalue())
 
     def test_db_clear_data_uses_maintenance_helper(self):
         stdout = io.StringIO()

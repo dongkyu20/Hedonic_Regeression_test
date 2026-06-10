@@ -22,6 +22,7 @@ from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_k
 from .gui import run_gui_server
 from .healthcare import import_healthcare_distance_snapshots_csvs
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
+from .model_diagnostics import generate_residual_diagnostics
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
 from .parks import import_park_environment_snapshots_xls
 from .school_distances import import_school_distance_snapshots_csv
@@ -236,6 +237,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     db_feature_coverage_parser.add_argument("--output-dir", default="artifacts/feature_coverage")
 
+    model_diagnostics_parser = subparsers.add_parser(
+        "model-diagnostics",
+        help="Write validation residual diagnostics by feature condition.",
+    )
+    model_diagnostics_parser.add_argument("--model", default="artifacts/hedonic_db_preprocessed_model.pkl")
+    model_diagnostics_parser.add_argument("--output-dir", default="artifacts/model_diagnostics")
+    model_diagnostics_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None)
+    model_diagnostics_parser.add_argument(
+        "--property-types",
+        default="apartment",
+        help="Comma-separated DB training property types. Defaults to apartment.",
+    )
+    model_diagnostics_parser.add_argument("--validation-months", type=int, default=6)
+    model_diagnostics_parser.add_argument("--min-segment-count", type=int, default=100)
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -280,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_healthcare_distances(args)
     if args.command == "db-feature-coverage":
         return _handle_db_feature_coverage(args)
+    if args.command == "model-diagnostics":
+        return _handle_model_diagnostics(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -632,6 +650,31 @@ def _handle_db_import_healthcare_distances(args: argparse.Namespace) -> int:
 def _handle_db_feature_coverage(args: argparse.Namespace) -> int:
     connection = get_mysql_connection()
     result = generate_feature_coverage_report(connection, output_dir=args.output_dir)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_model_diagnostics(args: argparse.Namespace) -> int:
+    model = load_model(args.model)
+    connection = get_mysql_connection()
+    try:
+        transactions = read_transactions_from_training_view(
+            connection,
+            city_code=args.city_code,
+            property_types=_parse_property_types(args.property_types) if args.property_types else None,
+        )
+    finally:
+        close = getattr(connection, "close", None)
+        if callable(close):
+            close()
+
+    result = generate_residual_diagnostics(
+        model,
+        transactions,
+        output_dir=args.output_dir,
+        validation_months=args.validation_months,
+        min_segment_count=args.min_segment_count,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
