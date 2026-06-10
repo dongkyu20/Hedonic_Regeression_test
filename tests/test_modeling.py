@@ -203,6 +203,35 @@ class ModelingTests(unittest.TestCase):
 
         self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 8)
 
+    def test_train_hedonic_model_estimates_max_floor_from_training_split_only(self):
+        transactions = [
+            Transaction(
+                district="강남구",
+                lawd_cd="11680",
+                deal_year=2025,
+                deal_month=idx + 1,
+                deal_day=10,
+                legal_dong="역삼동",
+                building_name="검증누수방지단지",
+                property_type="apartment",
+                exclusive_area_m2=84.9,
+                floor=floor,
+                build_year=2008,
+                price_manwon=90_000 + idx * 1_000,
+            )
+            for idx, floor in enumerate([1, 2, 4, 7, 7, 6, 21, 5])
+        ]
+
+        model = train_hedonic_model(
+            transactions,
+            max_iter=20,
+            min_samples_leaf=1,
+            random_state=42,
+            validation_months=2,
+        )
+
+        self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 8)
+
     def test_train_hedonic_model_reports_progress_events_in_order(self):
         events = []
 

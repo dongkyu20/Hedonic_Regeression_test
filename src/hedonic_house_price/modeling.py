@@ -87,7 +87,7 @@ def train_hedonic_model(
 
     common_apartments: set[str] = set()
     _report(progress, "exclude_apartment_name")
-    estimated_max_floors = estimate_complex_max_floors(usable)
+    estimated_max_floors = estimate_complex_max_floors(train_transactions)
 
     raw_train_rows = make_feature_rows(
         train_transactions,
