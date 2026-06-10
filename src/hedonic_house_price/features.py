@@ -125,7 +125,7 @@ def make_feature_row(
     age = max(0, transaction.deal_year - transaction.build_year)
     has_land_area = transaction.land_area_m2 is not None and transaction.land_area_m2 > 0
     extra_features = getattr(transaction, "extra_features", {}) or {}
-    estimated_max_floor, max_floor_source = _max_floor_context(transaction, estimated_max_floors, extra_features)
+    estimated_max_floor, max_floor_source = _max_floor_context(transaction, estimated_max_floors)
     relative_floor = transaction.floor / estimated_max_floor
     floors_below_top = max(0, estimated_max_floor - transaction.floor)
 
@@ -155,6 +155,7 @@ def make_feature_row(
         "target_log_price": math.log(transaction.price_krw),
     }
 
+    _add_kapt_floor_features(row, transaction, extra_features)
     _add_extra_feature_transforms(row, extra_features)
     return row
 
@@ -178,20 +179,13 @@ def _estimated_max_floor(
     transaction: Transaction,
     estimated_max_floors: dict[ComplexFloorKey, int] | None,
 ) -> int:
-    return _max_floor_context(transaction, estimated_max_floors, {})[0]
+    return _max_floor_context(transaction, estimated_max_floors)[0]
 
 
 def _max_floor_context(
     transaction: Transaction,
     estimated_max_floors: dict[ComplexFloorKey, int] | None,
-    extra_features: dict[str, object],
 ) -> tuple[int, str]:
-    kapt_max_floor = _positive_int(extra_features.get("kapt_max_floor"))
-    if kapt_max_floor is not None:
-        if kapt_max_floor >= transaction.floor:
-            return kapt_max_floor, "kapt"
-        return transaction.floor, "current_floor"
-
     current_floor_estimate = _round_up_to_floor_step(transaction.floor)
     if not estimated_max_floors:
         return current_floor_estimate, "current_floor_estimate"
@@ -232,6 +226,31 @@ def floors_below_top_bin(value: object) -> str:
     if floors <= 10:
         return "below_top_6_10"
     return "below_top_11_plus"
+
+
+def _add_kapt_floor_features(
+    row: dict[str, float | int | str],
+    transaction: Transaction,
+    extra_features: dict[str, object],
+) -> None:
+    kapt_max_floor = _positive_int(extra_features.get("kapt_max_floor"))
+    if kapt_max_floor is None or kapt_max_floor < transaction.floor:
+        row["kapt_max_floor"] = 0.0
+        row["kapt_max_floor_missing"] = 1
+        row["kapt_relative_floor"] = 0.0
+        row["kapt_relative_floor_bin"] = "missing"
+        row["floors_below_kapt_top"] = 0
+        row["floors_below_kapt_top_bin"] = "missing"
+        return
+
+    relative_floor = transaction.floor / kapt_max_floor
+    floors_below_top = max(0, kapt_max_floor - transaction.floor)
+    row["kapt_max_floor"] = kapt_max_floor
+    row["kapt_max_floor_missing"] = 0
+    row["kapt_relative_floor"] = relative_floor
+    row["kapt_relative_floor_bin"] = relative_floor_bin(relative_floor)
+    row["floors_below_kapt_top"] = floors_below_top
+    row["floors_below_kapt_top_bin"] = floors_below_top_bin(floors_below_top)
 
 
 def _round_up_to_floor_step(floor: int, step: int = 4) -> int:

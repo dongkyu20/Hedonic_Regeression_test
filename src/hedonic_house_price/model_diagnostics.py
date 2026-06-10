@@ -124,6 +124,9 @@ def _segment_conditions(
             feature_row.get("floors_below_estimated_top_bin")
             or floors_below_top_bin(feature_row.get("floors_below_estimated_top"))
         ),
+        "kapt_relative_floor_bin": str(feature_row.get("kapt_relative_floor_bin", "missing")),
+        "floors_below_kapt_top_bin": str(feature_row.get("floors_below_kapt_top_bin", "missing")),
+        "kapt_max_floor_missing": str(int(feature_row.get("kapt_max_floor_missing", 1))),
         "is_first_floor": str(int(feature_row.get("is_first_floor", 0))),
         "is_floor_2_3": str(int(feature_row.get("is_floor_2_3", 0))),
         "is_estimated_top_floor": str(int(feature_row.get("is_estimated_top_floor", 0))),

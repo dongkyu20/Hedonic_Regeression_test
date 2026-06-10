@@ -121,7 +121,7 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(inferred_top_floor["is_estimated_top_floor"], 1)
         self.assertEqual(inferred_top_floor["is_near_estimated_top_floor"], 1)
 
-    def test_make_feature_row_prefers_kapt_max_floor_for_relative_floor_features(self):
+    def test_make_feature_row_adds_kapt_max_floor_auxiliary_features(self):
         transaction = tx(floor=21, extra_features={"kapt_max_floor": 29})
         estimates = {complex_floor_key(transaction): 24}
 
@@ -131,12 +131,18 @@ class FeatureTests(unittest.TestCase):
             estimated_max_floors=estimates,
         )
 
-        self.assertEqual(row["estimated_max_floor"], 29)
-        self.assertEqual(row["max_floor_source"], "kapt")
-        self.assertAlmostEqual(row["relative_floor"], 21 / 29)
-        self.assertEqual(row["relative_floor_bin"], "relative_floor_50_75")
-        self.assertEqual(row["floors_below_estimated_top"], 8)
-        self.assertEqual(row["floors_below_estimated_top_bin"], "below_top_6_10")
+        self.assertEqual(row["estimated_max_floor"], 24)
+        self.assertEqual(row["max_floor_source"], "transaction_estimate")
+        self.assertAlmostEqual(row["relative_floor"], 21 / 24)
+        self.assertEqual(row["relative_floor_bin"], "relative_floor_75_100")
+        self.assertEqual(row["floors_below_estimated_top"], 3)
+        self.assertEqual(row["floors_below_estimated_top_bin"], "below_top_3_5")
+        self.assertEqual(row["kapt_max_floor"], 29)
+        self.assertEqual(row["kapt_max_floor_missing"], 0)
+        self.assertAlmostEqual(row["kapt_relative_floor"], 21 / 29)
+        self.assertEqual(row["kapt_relative_floor_bin"], "relative_floor_50_75")
+        self.assertEqual(row["floors_below_kapt_top"], 8)
+        self.assertEqual(row["floors_below_kapt_top_bin"], "below_top_6_10")
         self.assertEqual(row["is_estimated_top_floor"], 0)
         self.assertEqual(row["is_near_estimated_top_floor"], 0)
 
