@@ -69,6 +69,38 @@ def apartment_only_transactions():
     return rows
 
 
+def enriched_apartment_transactions():
+    rows = apartment_only_transactions()
+    for idx, transaction in enumerate(rows):
+        object.__setattr__(transaction, "build_year", 1988 + idx * 3)
+        object.__setattr__(transaction, "exclusive_area_m2", 59.8 if idx % 2 == 0 else 84.9)
+        object.__setattr__(
+            transaction,
+            "extra_features",
+            {
+                "city_code": "seoul" if idx < 6 else "busan",
+                "household_count": 800 + idx * 50,
+                "building_count": 4 + (idx % 3),
+                "total_parking_spaces": 900 + idx * 40,
+                "parking_spaces_per_household": 1.0 + idx * 0.02,
+                "has_community_facilities": 1 if idx % 2 == 0 else 0,
+                "nearest_subway_distance_m": 250.0 + idx * 45,
+                "subway_count_radius": idx % 4,
+                "nearest_bus_stop_distance_m": 80.0 + idx * 6,
+                "bus_stop_count_radius": 10 + idx,
+                "car_airport_minutes": 45.0 + idx,
+                "nearest_elementary_school_distance_m": 180.0 + idx * 12,
+                "school_count_radius": 1 + idx % 5,
+                "academy_count_radius": 5 + idx * 2,
+                "nearest_hospital_distance_m": 300.0 + idx * 15,
+                "nearest_pharmacy_distance_m": 120.0 + idx * 8,
+                "nearest_park_distance_m": 220.0 + idx * 11,
+                "park_area_total_m2_radius": 0.0 if idx % 4 == 0 else 1500.0 + idx * 250,
+            },
+        )
+    return rows
+
+
 class ModelingTests(unittest.TestCase):
     def test_train_hedonic_model_reports_metrics_and_floor_residuals(self):
         model = train_hedonic_model(
@@ -105,6 +137,34 @@ class ModelingTests(unittest.TestCase):
         self.assertFalse(any(name == "house_type=unknown" for name in feature_names))
         self.assertFalse(any(name == "has_land_area" for name in feature_names))
         self.assertFalse(any(name == "log_land_area_m2" for name in feature_names))
+
+    def test_train_hedonic_model_uses_preprocessed_db_feature_set(self):
+        model = train_hedonic_model(
+            enriched_apartment_transactions(),
+            alpha=0.1,
+            min_apartment_count=2,
+            validation_months=2,
+        )
+
+        feature_names = model.pipeline.estimator.named_steps["vectorizer"].feature_names_
+        self.assertTrue(any(name.startswith("age_band=") for name in feature_names))
+        self.assertTrue(any(name.startswith("floor_band=") for name in feature_names))
+        self.assertTrue(any(name.startswith("subway_count_radius_bin=") for name in feature_names))
+        self.assertTrue(any(name.startswith("academy_count_radius_bin=") for name in feature_names))
+        self.assertIn("log_area_m2", feature_names)
+        self.assertIn("log_household_count", feature_names)
+        self.assertIn("households_per_building", feature_names)
+        self.assertIn("log_total_parking_spaces", feature_names)
+        self.assertIn("parking_spaces_per_household", feature_names)
+        self.assertIn("log_nearest_subway_distance_m", feature_names)
+        self.assertIn("log_car_airport_minutes", feature_names)
+        self.assertIn("park_exists", feature_names)
+        self.assertIn("log_park_area_total_m2_radius", feature_names)
+        self.assertNotIn("age", feature_names)
+        self.assertNotIn("age_squared", feature_names)
+        self.assertNotIn("floor", feature_names)
+        self.assertNotIn("floor_squared", feature_names)
+        self.assertNotIn("building_count", feature_names)
 
     def test_train_hedonic_model_reports_progress_events_in_order(self):
         events = []

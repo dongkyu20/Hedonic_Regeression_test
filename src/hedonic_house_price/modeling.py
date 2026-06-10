@@ -80,22 +80,24 @@ def train_hedonic_model(
 
     common_apartments: set[str] = set()
     _report(progress, "exclude_apartment_name")
-    dropped_feature_names = _constant_optional_feature_names(train_transactions)
 
+    raw_train_rows = make_feature_rows(
+        train_transactions,
+        first_month=first_month,
+    )
+    dropped_feature_names = _constant_feature_names(raw_train_rows)
     train_rows = _drop_features(
-        make_feature_rows(
-            train_transactions,
-            first_month=first_month,
-        ),
+        raw_train_rows,
         dropped_feature_names,
     )
     _report(progress, "features_train", rows=len(train_rows))
 
+    raw_validation_rows = make_feature_rows(
+        validation_transactions,
+        first_month=first_month,
+    )
     validation_rows = _drop_features(
-        make_feature_rows(
-            validation_transactions,
-            first_month=first_month,
-        ),
+        raw_validation_rows,
         dropped_feature_names,
     )
     _report(progress, "features_validation", rows=len(validation_rows))
@@ -227,27 +229,17 @@ def _chronological_split(
     return transactions[:cutoff], transactions[cutoff:]
 
 
-def _constant_optional_feature_names(transactions: list[Transaction]) -> set[str]:
-    if not transactions:
+def _constant_feature_names(rows: list[dict[str, object]]) -> set[str]:
+    if not rows:
         return set()
 
     dropped: set[str] = set()
-    property_types = {transaction.property_type for transaction in transactions}
-    if len(property_types) <= 1:
-        dropped.add("property_type")
-
-    house_types = {transaction.house_type or "unknown" for transaction in transactions}
-    if len(house_types) <= 1:
-        dropped.add("house_type")
-
-    land_area_flags = {
-        1 if transaction.land_area_m2 is not None and transaction.land_area_m2 > 0 else 0
-        for transaction in transactions
-    }
-    if len(land_area_flags) <= 1:
-        dropped.add("has_land_area")
-    if land_area_flags == {0}:
-        dropped.add("log_land_area_m2")
+    feature_names = set().union(*(row.keys() for row in rows))
+    feature_names.discard("target_log_price")
+    for feature_name in feature_names:
+        values = {row.get(feature_name) for row in rows}
+        if len(values) <= 1:
+            dropped.add(feature_name)
 
     return dropped
 

@@ -5,6 +5,36 @@ import math
 from .transactions import Transaction
 
 
+LOG1P_EXTRA_FEATURES = [
+    "household_count",
+    "total_parking_spaces",
+    "nearest_subway_distance_m",
+    "nearest_bus_stop_distance_m",
+    "car_intercity_bus_terminal_minutes",
+    "car_airport_minutes",
+    "car_rail_station_minutes",
+    "car_general_hospital_minutes",
+    "transit_intercity_bus_terminal_minutes",
+    "transit_airport_minutes",
+    "transit_rail_station_minutes",
+    "transit_general_hospital_minutes",
+    "nearest_elementary_school_distance_m",
+    "nearest_middle_school_distance_m",
+    "nearest_hospital_distance_m",
+    "nearest_pharmacy_distance_m",
+    "nearest_park_distance_m",
+    "park_area_total_m2_radius",
+]
+
+COUNT_BIN_EXTRA_FEATURES = [
+    "subway_count_radius",
+    "bus_stop_count_radius",
+    "school_count_radius",
+    "academy_count_radius",
+    "recent_transaction_count",
+]
+
+
 def floor_band(floor: int) -> str:
     if floor == 1:
         return "floor_1"
@@ -19,6 +49,38 @@ def floor_band(floor: int) -> str:
     if 19 <= floor <= 25:
         return "floor_19_25"
     return "floor_26_plus"
+
+
+def age_band(age_years: int) -> str:
+    if age_years <= 4:
+        return "age_0_4"
+    if age_years <= 9:
+        return "age_5_9"
+    if age_years <= 19:
+        return "age_10_19"
+    if age_years <= 29:
+        return "age_20_29"
+    if age_years <= 39:
+        return "age_30_39"
+    return "age_40_plus"
+
+
+def count_bin(value: object) -> str:
+    number = _optional_number(value)
+    if number is None:
+        return "missing"
+    count = int(number)
+    if count <= 0:
+        return "count_0"
+    if count <= 2:
+        return "count_1_2"
+    if count <= 5:
+        return "count_3_5"
+    if count <= 10:
+        return "count_6_10"
+    if count <= 20:
+        return "count_11_20"
+    return "count_21_plus"
 
 
 def month_index(first_yyyymm: str, current_yyyymm: str) -> int:
@@ -39,14 +101,11 @@ def make_feature_row(
     age = max(0, transaction.deal_year - transaction.build_year)
     has_land_area = transaction.land_area_m2 is not None and transaction.land_area_m2 > 0
 
-    return {
-        "log_area_m2": math.log(transaction.exclusive_area_m2),
-        "log_land_area_m2": math.log(transaction.land_area_m2) if has_land_area else 0.0,
+    row: dict[str, float | int | str] = {
+        "log_area_m2": math.log1p(transaction.exclusive_area_m2),
+        "log_land_area_m2": math.log1p(transaction.land_area_m2) if has_land_area else 0.0,
         "has_land_area": 1 if has_land_area else 0,
-        "age": age,
-        "age_squared": age * age,
-        "floor": transaction.floor,
-        "floor_squared": transaction.floor * transaction.floor,
+        "age_band": age_band(age),
         "low_floor": 1 if transaction.floor <= 3 else 0,
         "floor_band": floor_band(transaction.floor),
         "deal_month_index": month_index(first_month, transaction.deal_yyyymm),
@@ -57,6 +116,9 @@ def make_feature_row(
         "house_type": transaction.house_type or "unknown",
         "target_log_price": math.log(transaction.price_krw),
     }
+
+    _add_extra_feature_transforms(row, getattr(transaction, "extra_features", {}) or {})
+    return row
 
 
 def make_feature_rows(
@@ -77,3 +139,71 @@ def _split_yyyymm(value: str) -> tuple[int, int]:
     if not 1 <= month <= 12:
         raise ValueError("month must be between 01 and 12")
     return year, month
+
+
+def _add_extra_feature_transforms(
+    row: dict[str, float | int | str],
+    extra_features: dict[str, object],
+) -> None:
+    city_code = str(extra_features.get("city_code") or "").strip().lower()
+    row["city_code"] = city_code or "unknown"
+
+    household_count = _optional_number(extra_features.get("household_count"))
+    building_count = _optional_number(extra_features.get("building_count"))
+    if household_count is not None and building_count is not None and building_count > 0:
+        row["households_per_building"] = household_count / building_count
+        row["households_per_building_missing"] = 0
+    else:
+        row["households_per_building"] = 0.0
+        row["households_per_building_missing"] = 1
+
+    _add_optional_numeric(row, "parking_spaces_per_household", extra_features.get("parking_spaces_per_household"))
+    _add_optional_numeric(row, "has_community_facilities", extra_features.get("has_community_facilities"))
+
+    for feature_name in LOG1P_EXTRA_FEATURES:
+        _add_log1p_feature(row, feature_name, extra_features.get(feature_name))
+
+    for feature_name in COUNT_BIN_EXTRA_FEATURES:
+        row[f"{feature_name}_bin"] = count_bin(extra_features.get(feature_name))
+
+    park_area = _optional_number(extra_features.get("park_area_total_m2_radius"))
+    row["park_exists"] = 1 if park_area is not None and park_area > 0 else 0
+
+
+def _add_log1p_feature(
+    row: dict[str, float | int | str],
+    feature_name: str,
+    value: object,
+) -> None:
+    number = _optional_number(value)
+    if number is None or number < 0:
+        row[f"log_{feature_name}"] = 0.0
+        row[f"{feature_name}_missing"] = 1
+        return
+
+    row[f"log_{feature_name}"] = math.log1p(number)
+    row[f"{feature_name}_missing"] = 0
+
+
+def _add_optional_numeric(
+    row: dict[str, float | int | str],
+    feature_name: str,
+    value: object,
+) -> None:
+    number = _optional_number(value)
+    if number is None:
+        row[feature_name] = 0.0
+        row[f"{feature_name}_missing"] = 1
+        return
+
+    row[feature_name] = number
+    row[f"{feature_name}_missing"] = 0
+
+
+def _optional_number(value: object) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return float(text)

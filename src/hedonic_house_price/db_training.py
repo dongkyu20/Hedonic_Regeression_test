@@ -5,7 +5,7 @@ from typing import Any
 from .transactions import Transaction
 
 
-TRAINING_VIEW_COLUMNS = [
+CORE_TRAINING_VIEW_COLUMNS = [
     "property_type",
     "district",
     "lawd_cd",
@@ -22,9 +22,41 @@ TRAINING_VIEW_COLUMNS = [
     "price_manwon",
 ]
 
+FACTOR_TRAINING_VIEW_COLUMNS = [
+    "city_code",
+    "household_count",
+    "building_count",
+    "total_parking_spaces",
+    "parking_spaces_per_household",
+    "has_community_facilities",
+    "nearest_subway_distance_m",
+    "subway_count_radius",
+    "nearest_bus_stop_distance_m",
+    "bus_stop_count_radius",
+    "car_intercity_bus_terminal_minutes",
+    "car_airport_minutes",
+    "car_rail_station_minutes",
+    "car_general_hospital_minutes",
+    "transit_intercity_bus_terminal_minutes",
+    "transit_airport_minutes",
+    "transit_rail_station_minutes",
+    "transit_general_hospital_minutes",
+    "nearest_elementary_school_distance_m",
+    "nearest_middle_school_distance_m",
+    "school_count_radius",
+    "academy_count_radius",
+    "nearest_hospital_distance_m",
+    "nearest_pharmacy_distance_m",
+    "nearest_park_distance_m",
+    "park_area_total_m2_radius",
+    "recent_transaction_count",
+]
+
+TRAINING_VIEW_COLUMNS = CORE_TRAINING_VIEW_COLUMNS + FACTOR_TRAINING_VIEW_COLUMNS
+
 
 def training_view_row_to_transaction(row: dict[str, Any]) -> Transaction:
-    missing = [column for column in TRAINING_VIEW_COLUMNS if column not in row]
+    missing = [column for column in CORE_TRAINING_VIEW_COLUMNS if column not in row]
     if missing:
         raise ValueError(f"missing training view column: {missing[0]}")
 
@@ -43,6 +75,11 @@ def training_view_row_to_transaction(row: dict[str, Any]) -> Transaction:
         floor=int(row["floor"]),
         build_year=int(row["build_year"]),
         price_manwon=int(row["price_manwon"]),
+        extra_features={
+            column: row.get(column)
+            for column in FACTOR_TRAINING_VIEW_COLUMNS
+            if column in row
+        },
     )
 
 

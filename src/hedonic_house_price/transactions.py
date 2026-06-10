@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 CSV_FIELDS = [
@@ -39,6 +40,7 @@ class Transaction:
     floor: int
     build_year: int
     price_manwon: int
+    extra_features: dict[str, Any]
 
     def __init__(
         self,
@@ -58,6 +60,7 @@ class Transaction:
         apartment_name: str = "",
         house_type: str = "",
         land_area_m2: float | None = None,
+        extra_features: dict[str, Any] | None = None,
     ) -> None:
         normalized_type = normalize_property_type(property_type)
         normalized_name = (building_name or apartment_name or "").strip()
@@ -75,6 +78,7 @@ class Transaction:
         object.__setattr__(self, "floor", int(floor))
         object.__setattr__(self, "build_year", int(build_year))
         object.__setattr__(self, "price_manwon", int(price_manwon))
+        object.__setattr__(self, "extra_features", dict(extra_features or {}))
 
     @property
     def apartment_name(self) -> str:

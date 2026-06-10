@@ -21,8 +21,9 @@ def tx(
     build_year=2005,
     area=84.95,
     price_manwon=84500,
+    extra_features=None,
 ):
-    return Transaction(
+    transaction = Transaction(
         district="강남구",
         lawd_cd="11680",
         deal_year=deal_year,
@@ -38,6 +39,9 @@ def tx(
         build_year=build_year,
         price_manwon=price_manwon,
     )
+    if extra_features is not None:
+        object.__setattr__(transaction, "extra_features", extra_features)
+    return transaction
 
 
 class FeatureTests(unittest.TestCase):
@@ -58,11 +62,12 @@ class FeatureTests(unittest.TestCase):
     def test_make_feature_row_contains_hedonic_features(self):
         row = make_feature_row(tx(floor=3), first_month="202406")
 
-        self.assertAlmostEqual(row["log_area_m2"], math.log(84.95))
-        self.assertEqual(row["age"], 20)
-        self.assertEqual(row["age_squared"], 400)
-        self.assertEqual(row["floor"], 3)
-        self.assertEqual(row["floor_squared"], 9)
+        self.assertAlmostEqual(row["log_area_m2"], math.log1p(84.95))
+        self.assertEqual(row["age_band"], "age_20_29")
+        self.assertNotIn("age", row)
+        self.assertNotIn("age_squared", row)
+        self.assertNotIn("floor", row)
+        self.assertNotIn("floor_squared", row)
         self.assertEqual(row["low_floor"], 1)
         self.assertEqual(row["floor_band"], "floor_2_3")
         self.assertEqual(row["deal_month_index"], 12)
@@ -91,7 +96,55 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(row["property_type"], "rowhouse")
         self.assertEqual(row["house_type"], "다세대")
         self.assertEqual(row["has_land_area"], 1)
-        self.assertAlmostEqual(row["log_land_area_m2"], math.log(18.2))
+        self.assertAlmostEqual(row["log_land_area_m2"], math.log1p(18.2))
+
+    def test_make_feature_row_transforms_db_factor_features(self):
+        row = make_feature_row(
+            tx(
+                extra_features={
+                    "city_code": "seoul",
+                    "household_count": 1500,
+                    "building_count": 10,
+                    "total_parking_spaces": 1800,
+                    "parking_spaces_per_household": 1.2,
+                    "has_community_facilities": 1,
+                    "nearest_subway_distance_m": 425.0,
+                    "subway_count_radius": 2,
+                    "nearest_bus_stop_distance_m": 90.0,
+                    "bus_stop_count_radius": 14,
+                    "car_airport_minutes": 65.5,
+                    "nearest_elementary_school_distance_m": 310.0,
+                    "nearest_middle_school_distance_m": None,
+                    "school_count_radius": 3,
+                    "academy_count_radius": 27,
+                    "nearest_hospital_distance_m": 540.0,
+                    "nearest_pharmacy_distance_m": 120.0,
+                    "nearest_park_distance_m": 250.0,
+                    "park_area_total_m2_radius": 3200.0,
+                }
+            ),
+            first_month="202406",
+        )
+
+        self.assertEqual(row["city_code"], "seoul")
+        self.assertAlmostEqual(row["log_household_count"], math.log1p(1500))
+        self.assertEqual(row["households_per_building"], 150.0)
+        self.assertNotIn("building_count", row)
+        self.assertAlmostEqual(row["log_total_parking_spaces"], math.log1p(1800))
+        self.assertEqual(row["parking_spaces_per_household"], 1.2)
+        self.assertEqual(row["has_community_facilities"], 1)
+        self.assertAlmostEqual(row["log_nearest_subway_distance_m"], math.log1p(425.0))
+        self.assertEqual(row["subway_count_radius_bin"], "count_1_2")
+        self.assertAlmostEqual(row["log_car_airport_minutes"], math.log1p(65.5))
+        self.assertAlmostEqual(row["log_nearest_elementary_school_distance_m"], math.log1p(310.0))
+        self.assertEqual(row["nearest_middle_school_distance_m_missing"], 1)
+        self.assertEqual(row["school_count_radius_bin"], "count_3_5")
+        self.assertEqual(row["academy_count_radius_bin"], "count_21_plus")
+        self.assertAlmostEqual(row["log_nearest_hospital_distance_m"], math.log1p(540.0))
+        self.assertAlmostEqual(row["log_nearest_pharmacy_distance_m"], math.log1p(120.0))
+        self.assertEqual(row["park_exists"], 1)
+        self.assertAlmostEqual(row["log_nearest_park_distance_m"], math.log1p(250.0))
+        self.assertAlmostEqual(row["log_park_area_total_m2_radius"], math.log1p(3200.0))
 
 
 if __name__ == "__main__":
