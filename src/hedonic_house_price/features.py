@@ -34,6 +34,29 @@ COUNT_BIN_EXTRA_FEATURES = [
     "recent_transaction_count",
 ]
 
+ComplexFloorKey = tuple[str, str, str, str]
+
+
+def complex_floor_key(transaction: Transaction) -> ComplexFloorKey:
+    return (
+        transaction.property_type.strip().lower(),
+        transaction.lawd_cd.strip(),
+        transaction.legal_dong.strip(),
+        transaction.building_name.strip(),
+    )
+
+
+def estimate_complex_max_floors(transactions: list[Transaction]) -> dict[ComplexFloorKey, int]:
+    observed_max_floors: dict[ComplexFloorKey, int] = {}
+    for transaction in transactions:
+        key = complex_floor_key(transaction)
+        observed_max_floors[key] = max(observed_max_floors.get(key, transaction.floor), transaction.floor)
+
+    return {
+        key: _round_up_to_floor_step(max_floor)
+        for key, max_floor in observed_max_floors.items()
+    }
+
 
 def floor_band(floor: int) -> str:
     if floor == 1:
@@ -92,6 +115,7 @@ def month_index(first_yyyymm: str, current_yyyymm: str) -> int:
 def make_feature_row(
     transaction: Transaction,
     first_month: str,
+    estimated_max_floors: dict[ComplexFloorKey, int] | None = None,
 ) -> dict[str, float | int | str]:
     if transaction.exclusive_area_m2 <= 0:
         raise ValueError("exclusive_area_m2 must be positive")
@@ -100,6 +124,7 @@ def make_feature_row(
 
     age = max(0, transaction.deal_year - transaction.build_year)
     has_land_area = transaction.land_area_m2 is not None and transaction.land_area_m2 > 0
+    estimated_max_floor = _estimated_max_floor(transaction, estimated_max_floors)
 
     row: dict[str, float | int | str] = {
         "log_area_m2": math.log1p(transaction.exclusive_area_m2),
@@ -108,6 +133,12 @@ def make_feature_row(
         "age_band": age_band(age),
         "low_floor": 1 if transaction.floor <= 3 else 0,
         "floor_band": floor_band(transaction.floor),
+        "estimated_max_floor": estimated_max_floor,
+        "relative_floor": transaction.floor / estimated_max_floor,
+        "is_first_floor": 1 if transaction.floor == 1 else 0,
+        "is_floor_2_3": 1 if 2 <= transaction.floor <= 3 else 0,
+        "is_estimated_top_floor": 1 if transaction.floor == estimated_max_floor else 0,
+        "is_near_estimated_top_floor": 1 if transaction.floor >= estimated_max_floor - 2 else 0,
         "deal_month_index": month_index(first_month, transaction.deal_yyyymm),
         "calendar_month": str(transaction.deal_month),
         "district": transaction.district,
@@ -124,11 +155,34 @@ def make_feature_row(
 def make_feature_rows(
     transactions: list[Transaction],
     first_month: str,
+    estimated_max_floors: dict[ComplexFloorKey, int] | None = None,
 ) -> list[dict[str, float | int | str]]:
     return [
-        make_feature_row(transaction, first_month=first_month)
+        make_feature_row(
+            transaction,
+            first_month=first_month,
+            estimated_max_floors=estimated_max_floors,
+        )
         for transaction in transactions
     ]
+
+
+def _estimated_max_floor(
+    transaction: Transaction,
+    estimated_max_floors: dict[ComplexFloorKey, int] | None,
+) -> int:
+    current_floor_estimate = _round_up_to_floor_step(transaction.floor)
+    if not estimated_max_floors:
+        return current_floor_estimate
+    mapped_floor = estimated_max_floors.get(complex_floor_key(transaction))
+    if mapped_floor is None:
+        return current_floor_estimate
+    return max(mapped_floor, current_floor_estimate)
+
+
+def _round_up_to_floor_step(floor: int, step: int = 4) -> int:
+    normalized_floor = max(1, int(floor))
+    return ((normalized_floor + step - 1) // step) * step
 
 
 def _split_yyyymm(value: str) -> tuple[int, int]:

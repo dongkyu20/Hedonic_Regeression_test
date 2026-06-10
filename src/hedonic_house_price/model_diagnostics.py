@@ -42,7 +42,11 @@ def generate_residual_diagnostics(
     if not validation_transactions:
         raise ValueError("no validation rows available for diagnostics")
 
-    feature_rows = make_feature_rows(validation_transactions, first_month=model.first_month)
+    feature_rows = make_feature_rows(
+        validation_transactions,
+        first_month=model.first_month,
+        estimated_max_floors=getattr(model, "estimated_max_floors", {}),
+    )
     predicted_log_prices = model.pipeline.predict(feature_rows)
     residual_records = [
         _residual_record(transaction, feature_row, predicted_log_price)
@@ -114,6 +118,11 @@ def _segment_conditions(
         "district": transaction.district,
         "legal_dong": transaction.legal_dong,
         "floor_band": str(feature_row["floor_band"]),
+        "relative_floor_bin": _relative_floor_bin(feature_row.get("relative_floor")),
+        "is_first_floor": str(int(feature_row.get("is_first_floor", 0))),
+        "is_floor_2_3": str(int(feature_row.get("is_floor_2_3", 0))),
+        "is_estimated_top_floor": str(int(feature_row.get("is_estimated_top_floor", 0))),
+        "is_near_estimated_top_floor": str(int(feature_row.get("is_near_estimated_top_floor", 0))),
         "age_band": str(feature_row["age_band"]),
         "area_m2_bin": _area_bin(transaction.exclusive_area_m2),
         "household_count_bin": _household_count_bin(extra.get("household_count")),
@@ -255,6 +264,21 @@ def _area_bin(value: float) -> str:
     if value <= 135:
         return "area_102_135"
     return "area_135_plus"
+
+
+def _relative_floor_bin(value: Any) -> str:
+    number = _optional_number(value)
+    if number is None:
+        return "missing"
+    if number <= 0.25:
+        return "relative_floor_0_25"
+    if number <= 0.5:
+        return "relative_floor_25_50"
+    if number <= 0.75:
+        return "relative_floor_50_75"
+    if number < 1.0:
+        return "relative_floor_75_100"
+    return "relative_floor_100"
 
 
 def _household_count_bin(value: Any) -> str:

@@ -2,8 +2,11 @@ import math
 import unittest
 
 from hedonic_house_price.features import (
+    complex_floor_key,
+    estimate_complex_max_floors,
     floor_band,
     make_feature_row,
+    make_feature_rows,
     month_index,
 )
 from hedonic_house_price.transactions import Transaction
@@ -79,6 +82,44 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(row["has_land_area"], 0)
         self.assertEqual(row["log_land_area_m2"], 0.0)
         self.assertAlmostEqual(row["target_log_price"], math.log(845_000_000))
+
+    def test_make_feature_rows_adds_estimated_relative_floor_features(self):
+        rows = [
+            tx(building_name="21층관측단지", floor=1),
+            tx(building_name="21층관측단지", floor=21),
+            tx(building_name="7층관측단지", floor=2),
+            tx(building_name="7층관측단지", floor=7),
+        ]
+
+        estimates = estimate_complex_max_floors(rows)
+        feature_rows = make_feature_rows(rows, first_month="202406", estimated_max_floors=estimates)
+
+        self.assertEqual(estimates[complex_floor_key(rows[1])], 24)
+        self.assertEqual(estimates[complex_floor_key(rows[3])], 8)
+
+        first_floor = feature_rows[0]
+        self.assertEqual(first_floor["estimated_max_floor"], 24)
+        self.assertAlmostEqual(first_floor["relative_floor"], 1 / 24)
+        self.assertEqual(first_floor["is_first_floor"], 1)
+        self.assertEqual(first_floor["is_floor_2_3"], 0)
+        self.assertEqual(first_floor["is_estimated_top_floor"], 0)
+
+        second_floor = feature_rows[2]
+        self.assertEqual(second_floor["estimated_max_floor"], 8)
+        self.assertAlmostEqual(second_floor["relative_floor"], 2 / 8)
+        self.assertEqual(second_floor["is_first_floor"], 0)
+        self.assertEqual(second_floor["is_floor_2_3"], 1)
+        self.assertEqual(second_floor["is_estimated_top_floor"], 0)
+
+        inferred_top_floor = make_feature_row(
+            tx(building_name="7층관측단지", floor=8),
+            first_month="202406",
+            estimated_max_floors=estimates,
+        )
+        self.assertEqual(inferred_top_floor["estimated_max_floor"], 8)
+        self.assertAlmostEqual(inferred_top_floor["relative_floor"], 1.0)
+        self.assertEqual(inferred_top_floor["is_estimated_top_floor"], 1)
+        self.assertEqual(inferred_top_floor["is_near_estimated_top_floor"], 1)
 
     def test_make_feature_row_excludes_apartment_name_from_model_features(self):
         row = make_feature_row(tx(building_name="희귀단지"), first_month="202406")

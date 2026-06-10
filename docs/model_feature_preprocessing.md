@@ -25,6 +25,12 @@
 |---|---|---|
 | `floor` | `floor_band` | 층을 구간화합니다: `floor_1`, `floor_2_3`, `floor_4_7`, `floor_8_12`, `floor_13_18`, `floor_19_25`, `floor_26_plus`. 문자열 범주라서 원핫 인코딩됩니다. |
 | `floor` | `low_floor` | 3층 이하이면 `1`, 아니면 `0`입니다. |
+| `floor`, 단지별 거래내역 | `estimated_max_floor` | `(property_type, lawd_cd, legal_dong, building_name)` 단위로 관측 최고 거래층을 구하고 4층 단위로 올림합니다. 예: 관측 최고 21층은 24층, 7층은 8층으로 추정합니다. |
+| `floor`, `estimated_max_floor` | `relative_floor` | `floor / estimated_max_floor`로 계산합니다. 같은 20층이라도 단지 최고층 대비 상대 위치를 반영합니다. |
+| `floor` | `is_first_floor` | 1층이면 `1`, 아니면 `0`입니다. |
+| `floor` | `is_floor_2_3` | 2~3층이면 `1`, 아니면 `0`입니다. |
+| `floor`, `estimated_max_floor` | `is_estimated_top_floor` | 거래층이 추정 최고층과 같으면 `1`, 아니면 `0`입니다. |
+| `floor`, `estimated_max_floor` | `is_near_estimated_top_floor` | 거래층이 추정 최고층보다 2층 이하로 낮은 최상단부이면 `1`, 아니면 `0`입니다. |
 | `build_year`, `deal_year` | `age_band` | `max(0, deal_year - build_year)`로 거래 시점 연식을 계산한 뒤 `age_0_4`, `age_5_9`, `age_10_19`, `age_20_29`, `age_30_39`, `age_40_plus`로 구간화합니다. |
 | `household_count` | `log_household_count` | `log1p(household_count)`로 변환합니다. 결측/음수이면 `0.0`과 `household_count_missing = 1`을 넣습니다. |
 | `building_count`, `household_count` | `households_per_building` | `household_count / building_count`를 계산합니다. `building_count` 원본은 직접 쓰지 않습니다. 계산 불가이면 `0.0`과 `households_per_building_missing = 1`을 넣습니다. |

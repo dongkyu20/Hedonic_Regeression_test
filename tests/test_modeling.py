@@ -9,6 +9,7 @@ from hedonic_house_price.modeling import (
     save_model,
     train_hedonic_model,
 )
+from hedonic_house_price.features import complex_floor_key
 from hedonic_house_price.transactions import Transaction
 
 
@@ -118,6 +119,7 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("mae_krw", model.metrics)
         self.assertIn("mape", model.metrics)
         self.assertIn("floor_13_18", model.residuals_by_floor_band)
+        self.assertGreater(len(model.estimated_max_floors), 0)
         self.assertIsInstance(model.dropped_features, set)
         self.assertEqual(model.common_apartments, set())
         feature_names = model.pipeline.estimator.named_steps["vectorizer"].feature_names_
@@ -159,6 +161,8 @@ class ModelingTests(unittest.TestCase):
         self.assertTrue(any(name.startswith("floor_band=") for name in feature_names))
         self.assertTrue(any(name.startswith("subway_count_radius_bin=") for name in feature_names))
         self.assertTrue(any(name.startswith("academy_count_radius_bin=") for name in feature_names))
+        self.assertIn("relative_floor", feature_names)
+        self.assertIn("is_floor_2_3", feature_names)
         self.assertIn("log_area_m2", feature_names)
         self.assertIn("log_household_count", feature_names)
         self.assertIn("households_per_building", feature_names)
@@ -173,6 +177,35 @@ class ModelingTests(unittest.TestCase):
         self.assertNotIn("floor", feature_names)
         self.assertNotIn("floor_squared", feature_names)
         self.assertNotIn("building_count", feature_names)
+
+    def test_train_hedonic_model_stores_rounded_complex_floor_estimates(self):
+        transactions = [
+            Transaction(
+                district="강남구",
+                lawd_cd="11680",
+                deal_year=2025,
+                deal_month=idx + 1,
+                deal_day=10,
+                legal_dong="역삼동",
+                building_name="추정단지",
+                property_type="apartment",
+                exclusive_area_m2=84.9,
+                floor=floor,
+                build_year=2008,
+                price_manwon=90_000 + idx * 1_000,
+            )
+            for idx, floor in enumerate([1, 2, 4, 7, 7, 6, 5, 3])
+        ]
+
+        model = train_hedonic_model(
+            transactions,
+            n_estimators=10,
+            random_state=42,
+            n_jobs=1,
+            validation_months=2,
+        )
+
+        self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 8)
 
     def test_train_hedonic_model_reports_progress_events_in_order(self):
         events = []

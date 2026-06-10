@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .features import make_feature_row, make_feature_rows
+from .features import estimate_complex_max_floors, make_feature_row, make_feature_rows
 from .linear_model import RandomForestPipeline
 from .transactions import Transaction, normalize_property_type
 
@@ -55,6 +55,7 @@ class TrainedModel:
     residuals_by_floor_band: dict[str, dict[str, float]]
     training_rows: int
     validation_rows: int
+    estimated_max_floors: dict[tuple[str, str, str, str], int] = field(default_factory=dict)
     dropped_features: set[str] = field(default_factory=set)
 
 def train_hedonic_model(
@@ -85,10 +86,12 @@ def train_hedonic_model(
 
     common_apartments: set[str] = set()
     _report(progress, "exclude_apartment_name")
+    estimated_max_floors = estimate_complex_max_floors(usable)
 
     raw_train_rows = make_feature_rows(
         train_transactions,
         first_month=first_month,
+        estimated_max_floors=estimated_max_floors,
     )
     dropped_feature_names = _constant_feature_names(raw_train_rows)
     train_rows = _drop_features(
@@ -100,6 +103,7 @@ def train_hedonic_model(
     raw_validation_rows = make_feature_rows(
         validation_transactions,
         first_month=first_month,
+        estimated_max_floors=estimated_max_floors,
     )
     validation_rows = _drop_features(
         raw_validation_rows,
@@ -128,7 +132,14 @@ def train_hedonic_model(
     metrics = evaluate_rows(pipeline, validation_rows or train_rows)
     _report(progress, "evaluate", rows=len(validation_rows or train_rows), mape=metrics["mape"], r2_log=metrics["r2_log"])
 
-    all_rows = _drop_features(make_feature_rows(usable, first_month=first_month), dropped_feature_names)
+    all_rows = _drop_features(
+        make_feature_rows(
+            usable,
+            first_month=first_month,
+            estimated_max_floors=estimated_max_floors,
+        ),
+        dropped_feature_names,
+    )
     residuals_by_floor_band = residuals_by_group(pipeline, all_rows, group_name="floor_band")
     _report(progress, "residuals", rows=len(all_rows), floor_bands=len(residuals_by_floor_band))
 
@@ -140,6 +151,7 @@ def train_hedonic_model(
         residuals_by_floor_band=residuals_by_floor_band,
         training_rows=len(train_rows),
         validation_rows=len(validation_rows),
+        estimated_max_floors=estimated_max_floors,
         dropped_features=dropped_feature_names,
     )
     _report(progress, "complete", training_rows=model.training_rows, validation_rows=model.validation_rows)
@@ -150,6 +162,7 @@ def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dic
     feature_row = make_feature_row(
         prediction_input.to_transaction(),
         first_month=model.first_month,
+        estimated_max_floors=getattr(model, "estimated_max_floors", {}),
     )
     predicted_log_price = model.pipeline.predict_one(feature_row)
     price_krw = int(round(math.exp(predicted_log_price)))
