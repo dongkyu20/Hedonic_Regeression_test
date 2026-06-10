@@ -311,6 +311,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.input, "data/access_times.xlsx")
         self.assertEqual(args.source_name, "transport_access")
 
+    def test_db_feature_coverage_command_parses_output_dir(self):
+        args = build_parser().parse_args(
+            [
+                "db-feature-coverage",
+                "--output-dir",
+                "artifacts/coverage",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-feature-coverage")
+        self.assertEqual(args.output_dir, "artifacts/coverage")
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -709,6 +721,36 @@ class CliTests(unittest.TestCase):
         self.assertEqual(import_mock.call_args.args[1], "data/access_times.xlsx")
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_feature_coverage_uses_report_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.generate_feature_coverage_report",
+                return_value={
+                    "total_rows": 10,
+                    "feature_count": 35,
+                    "ready_features": 20,
+                    "partial_features": 5,
+                    "missing_features": 10,
+                    "csv_output": "artifacts/coverage/feature_coverage.csv",
+                    "markdown_output": "artifacts/coverage/feature_coverage.md",
+                },
+            ) as report_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-feature-coverage",
+                    "--output-dir",
+                    "artifacts/coverage",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report_mock.call_args.kwargs["output_dir"], "artifacts/coverage")
+        self.assertIn('"ready_features": 20', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(

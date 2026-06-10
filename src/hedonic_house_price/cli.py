@@ -15,6 +15,7 @@ from .db import bootstrap_database, get_mysql_connection
 from .db_import import import_transactions_csv
 from .db_maintenance import clear_transaction_data, refresh_transaction_derived_snapshots
 from .db_training import read_transactions_from_training_view
+from .feature_coverage import generate_feature_coverage_report
 from .dates import recent_months
 from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
 from .gui import run_gui_server
@@ -183,6 +184,12 @@ def build_parser() -> argparse.ArgumentParser:
     db_park_parser.add_argument("--source-name", default="park_standard_data")
     db_park_parser.add_argument("--radius-m", type=int, default=1000)
 
+    db_feature_coverage_parser = subparsers.add_parser(
+        "db-feature-coverage",
+        help="Write feature coverage CSV and Markdown reports from model_training_features.",
+    )
+    db_feature_coverage_parser.add_argument("--output-dir", default="artifacts/feature_coverage")
+
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
 
@@ -221,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_access_times(args)
     if args.command == "db-import-parks":
         return _handle_db_import_parks(args)
+    if args.command == "db-feature-coverage":
+        return _handle_db_feature_coverage(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -531,6 +540,13 @@ def _handle_db_import_parks(args: argparse.Namespace) -> int:
         source_name=args.source_name,
         radius_m=args.radius_m,
     )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_feature_coverage(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = generate_feature_coverage_report(connection, output_dir=args.output_dir)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
