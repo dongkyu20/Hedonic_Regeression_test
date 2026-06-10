@@ -24,7 +24,14 @@ def sample_model():
                 price_manwon=90_000 + idx * 1_000,
             )
         )
-    return train_hedonic_model(transactions, alpha=0.1, min_apartment_count=2, validation_months=2)
+    return train_hedonic_model(
+        transactions,
+        n_estimators=10,
+        random_state=42,
+        n_jobs=1,
+        min_apartment_count=2,
+        validation_months=2,
+    )
 
 
 class GuiTests(unittest.TestCase):

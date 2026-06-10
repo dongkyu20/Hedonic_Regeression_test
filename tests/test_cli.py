@@ -111,21 +111,27 @@ class CliTests(unittest.TestCase):
                 "data/input.csv",
                 "--model-output",
                 "artifacts/model.json",
-                "--alpha",
-                "0.25",
-                "--l1-ratio",
-                "0.7",
-                "--max-iter",
-                "1234",
+                "--n-estimators",
+                "25",
+                "--max-depth",
+                "8",
+                "--min-samples-leaf",
+                "3",
+                "--random-state",
+                "17",
+                "--n-jobs",
+                "1",
             ]
         )
 
         self.assertEqual(args.command, "train")
         self.assertEqual(args.input, "data/input.csv")
         self.assertEqual(args.model_output, "artifacts/model.json")
-        self.assertEqual(args.alpha, 0.25)
-        self.assertEqual(args.l1_ratio, 0.7)
-        self.assertEqual(args.max_iter, 1234)
+        self.assertEqual(args.n_estimators, 25)
+        self.assertEqual(args.max_depth, 8)
+        self.assertEqual(args.min_samples_leaf, 3)
+        self.assertEqual(args.random_state, 17)
+        self.assertEqual(args.n_jobs, 1)
 
     def test_train_command_parses_run_output_dir(self):
         args = build_parser().parse_args(
@@ -462,8 +468,10 @@ class CliTests(unittest.TestCase):
                         input_path,
                         "--model-output",
                         model_path,
-                        "--alpha",
-                        "0.1",
+                        "--n-estimators",
+                        "10",
+                        "--n-jobs",
+                        "1",
                         "--min-apartment-count",
                         "2",
                         "--validation-months",
@@ -475,7 +483,7 @@ class CliTests(unittest.TestCase):
             progress_text = stderr.getvalue()
             self.assertIn("[train] CSV 로드 시작", progress_text)
             self.assertIn("[train] 특성 생성", progress_text)
-            self.assertIn("[train] sklearn ElasticNet 학습", progress_text)
+            self.assertIn("[train] sklearn RandomForest 학습", progress_text)
             self.assertIn("[train] 모델 저장 완료", progress_text)
             self.assertIn('"model_output"', stdout.getvalue())
         finally:
@@ -504,8 +512,10 @@ class CliTests(unittest.TestCase):
                             model_path,
                             "--run-output-dir",
                             str(run_dir),
-                            "--alpha",
-                            "0.1",
+                            "--n-estimators",
+                            "10",
+                            "--n-jobs",
+                            "1",
                             "--min-apartment-count",
                             "2",
                             "--validation-months",
@@ -597,8 +607,10 @@ class CliTests(unittest.TestCase):
                         "seoul",
                         "--model-output",
                         model_path,
-                        "--alpha",
-                        "0.1",
+                        "--n-estimators",
+                        "10",
+                        "--n-jobs",
+                        "1",
                         "--min-apartment-count",
                         "2",
                         "--validation-months",

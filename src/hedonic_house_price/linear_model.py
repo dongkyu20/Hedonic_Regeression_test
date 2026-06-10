@@ -2,21 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.linear_model import ElasticNet
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 
 @dataclass
-class ElasticNetPipeline:
-    alpha: float = 1.0
-    l1_ratio: float = 0.5
-    max_iter: int = 5000
+class RandomForestPipeline:
+    n_estimators: int = 120
+    max_depth: int | None = 24
+    min_samples_leaf: int = 5
+    random_state: int = 42
+    n_jobs: int = -1
     estimator: Pipeline | None = None
     target_name: str = "target_log_price"
 
-    def fit(self, rows: list[dict[str, object]], target_name: str = "target_log_price") -> "ElasticNetPipeline":
+    def fit(self, rows: list[dict[str, object]], target_name: str = "target_log_price") -> "RandomForestPipeline":
         if not rows:
             raise ValueError("cannot fit model on empty rows")
 
@@ -26,14 +27,14 @@ class ElasticNetPipeline:
         self.estimator = Pipeline(
             [
                 ("vectorizer", DictVectorizer(sparse=True)),
-                ("scaler", StandardScaler(with_mean=False)),
                 (
-                    "elastic_net",
-                    ElasticNet(
-                        alpha=self.alpha,
-                        l1_ratio=self.l1_ratio,
-                        max_iter=self.max_iter,
-                        fit_intercept=False,
+                    "random_forest",
+                    RandomForestRegressor(
+                        n_estimators=self.n_estimators,
+                        max_depth=self.max_depth,
+                        min_samples_leaf=self.min_samples_leaf,
+                        random_state=self.random_state,
+                        n_jobs=self.n_jobs,
                     ),
                 ),
             ]
@@ -57,4 +58,5 @@ def _without_target(row: dict[str, object], target_name: str) -> dict[str, objec
     return features
 
 
-RidgePipeline = ElasticNetPipeline
+ElasticNetPipeline = RandomForestPipeline
+RidgePipeline = RandomForestPipeline
