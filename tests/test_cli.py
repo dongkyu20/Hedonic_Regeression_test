@@ -58,6 +58,51 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.property_types, "apartment,officetel,rowhouse")
         self.assertEqual(args.output, "data/seoul_housing_trades.csv")
 
+    def test_fetch_command_parses_city_collection_options(self):
+        args = build_parser().parse_args(
+            [
+                "fetch",
+                "--city-codes",
+                "seoul,busan",
+                "--property-types",
+                "apartment",
+                "--output",
+                "data/seoul_busan_apartment_trades.csv",
+            ]
+        )
+
+        self.assertEqual(args.city_codes, "seoul,busan")
+        self.assertEqual(args.property_types, "apartment")
+        self.assertEqual(args.output, "data/seoul_busan_apartment_trades.csv")
+
+    def test_fetch_command_uses_selected_city_districts(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_service_key", return_value="service-key"),
+            patch("hedonic_house_price.cli.recent_months", return_value=["202505"]),
+            patch("hedonic_house_price.cli.fetch_transactions", return_value=sample_transactions()) as fetch_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "fetch",
+                    "--city-codes",
+                    "seoul,busan",
+                    "--property-types",
+                    "apartment",
+                    "--output",
+                    "/tmp/seoul_busan_apartment.csv",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        call_kwargs = fetch_mock.call_args.kwargs
+        self.assertEqual(call_kwargs["property_types"], ["apartment"])
+        self.assertEqual(len(call_kwargs["district_codes"]), 41)
+        self.assertEqual(call_kwargs["district_codes"]["서울특별시 강남구"], "11680")
+        self.assertEqual(call_kwargs["district_codes"]["부산광역시 해운대구"], "26350")
+        self.assertIn('"city_codes"', stdout.getvalue())
+
     def test_train_command_parses_model_options(self):
         args = build_parser().parse_args(
             [
@@ -88,6 +133,221 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.model, "artifacts/model.pkl")
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 8123)
+
+    def test_db_init_command_parses_schema_and_seed_options(self):
+        args = build_parser().parse_args(
+            [
+                "db-init",
+                "--schema",
+                "sql/mysql_schema.sql",
+                "--seed",
+                "sql/mysql_seed_regions.sql",
+                "--skip-seed",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-init")
+        self.assertEqual(args.schema, "sql/mysql_schema.sql")
+        self.assertEqual(args.seed, "sql/mysql_seed_regions.sql")
+        self.assertTrue(args.skip_seed)
+
+    def test_db_import_csv_command_parses_city_and_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-csv",
+                "--input",
+                "data/seoul_apartment_trades.csv",
+                "--city-code",
+                "seoul",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-csv")
+        self.assertEqual(args.input, "data/seoul_apartment_trades.csv")
+        self.assertEqual(args.city_code, "seoul")
+
+    def test_db_import_complex_info_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-complex-info",
+                "--input",
+                "data/complex_basic_info.csv",
+                "--reset-addresses",
+                "--accept-remaining-matches",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-complex-info")
+        self.assertEqual(args.input, "data/complex_basic_info.csv")
+        self.assertTrue(args.reset_addresses)
+        self.assertTrue(args.accept_remaining_matches)
+
+    def test_db_import_complex_conditions_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-complex-conditions",
+                "--input",
+                "data/complex_basic_info.csv",
+                "--accept-remaining-matches",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-complex-conditions")
+        self.assertEqual(args.input, "data/complex_basic_info.csv")
+        self.assertTrue(args.accept_remaining_matches)
+
+    def test_db_geocode_complexes_command_parses_options(self):
+        args = build_parser().parse_args(
+            [
+                "db-geocode-complexes",
+                "--provider",
+                "kakao",
+                "--city-code",
+                "seoul",
+                "--limit",
+                "100",
+                "--sleep-seconds",
+                "0.05",
+                "--overwrite",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-geocode-complexes")
+        self.assertEqual(args.provider, "kakao")
+        self.assertEqual(args.city_code, "seoul")
+        self.assertEqual(args.limit, 100)
+        self.assertEqual(args.sleep_seconds, 0.05)
+        self.assertTrue(args.overwrite)
+
+    def test_db_import_school_distances_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-school-distances",
+                "--input",
+                "data/schools.csv",
+                "--source-name",
+                "school_location",
+                "--radius-m",
+                "750",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-school-distances")
+        self.assertEqual(args.input, "data/schools.csv")
+        self.assertEqual(args.source_name, "school_location")
+        self.assertEqual(args.radius_m, 750)
+
+    def test_db_import_subway_distances_command_parses_inputs(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-subway-distances",
+                "--input",
+                "data/seoul_gyeonggi_subway.csv",
+                "--input",
+                "data/seoul_metro.csv",
+                "--source-name",
+                "transport_access",
+                "--radius-m",
+                "750",
+                "--sleep-seconds",
+                "0",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-subway-distances")
+        self.assertEqual(args.input, ["data/seoul_gyeonggi_subway.csv", "data/seoul_metro.csv"])
+        self.assertEqual(args.source_name, "transport_access")
+        self.assertEqual(args.radius_m, 750)
+        self.assertEqual(args.sleep_seconds, 0)
+
+    def test_db_import_bus_stop_distances_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-bus-stop-distances",
+                "--input",
+                "data/bus_stops.csv",
+                "--source-name",
+                "transport_access",
+                "--radius-m",
+                "750",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-bus-stop-distances")
+        self.assertEqual(args.input, "data/bus_stops.csv")
+        self.assertEqual(args.source_name, "transport_access")
+        self.assertEqual(args.radius_m, 750)
+
+    def test_db_import_parks_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-parks",
+                "--input",
+                "data/parks.xls",
+                "--source-name",
+                "park_standard_data",
+                "--radius-m",
+                "750",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-parks")
+        self.assertEqual(args.input, "data/parks.xls")
+        self.assertEqual(args.source_name, "park_standard_data")
+        self.assertEqual(args.radius_m, 750)
+
+    def test_db_import_access_times_command_parses_input(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-access-times",
+                "--input",
+                "data/access_times.xlsx",
+                "--source-name",
+                "transport_access",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-access-times")
+        self.assertEqual(args.input, "data/access_times.xlsx")
+        self.assertEqual(args.source_name, "transport_access")
+
+    def test_db_feature_coverage_command_parses_output_dir(self):
+        args = build_parser().parse_args(
+            [
+                "db-feature-coverage",
+                "--output-dir",
+                "artifacts/coverage",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-feature-coverage")
+        self.assertEqual(args.output_dir, "artifacts/coverage")
+
+    def test_db_clear_data_command_parses(self):
+        args = build_parser().parse_args(["db-clear-data"])
+
+        self.assertEqual(args.command, "db-clear-data")
+
+    def test_db_refresh_derived_snapshots_command_parses(self):
+        args = build_parser().parse_args(["db-refresh-derived-snapshots"])
+
+        self.assertEqual(args.command, "db-refresh-derived-snapshots")
+
+    def test_train_command_parses_db_training_options(self):
+        args = build_parser().parse_args(
+            [
+                "train",
+                "--from-db",
+                "--city-code",
+                "busan",
+                "--property-types",
+                "apartment,rowhouse",
+            ]
+        )
+
+        self.assertTrue(args.from_db)
+        self.assertEqual(args.city_code, "busan")
+        self.assertEqual(args.property_types, "apartment,rowhouse")
 
     def test_train_command_prints_realtime_progress_to_stderr(self):
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as csv_file:
@@ -176,6 +436,321 @@ class CliTests(unittest.TestCase):
             self.assertEqual(record["building_name"], "건축년도없는오피스텔")
             self.assertIn("skipped_rows", stdout.getvalue())
             self.assertIn("[fetch] 제외 거래 기록", stderr.getvalue())
+
+    def test_train_from_db_uses_training_view_reader(self):
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as model_file:
+            model_path = model_file.name
+
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        try:
+            with (
+                patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+                patch("hedonic_house_price.cli.read_transactions_from_training_view", return_value=sample_transactions()),
+                redirect_stderr(stderr),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main(
+                    [
+                        "train",
+                        "--from-db",
+                        "--city-code",
+                        "seoul",
+                        "--model-output",
+                        model_path,
+                        "--alpha",
+                        "0.1",
+                        "--min-apartment-count",
+                        "2",
+                        "--validation-months",
+                        "2",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("[train] DB 로드 시작", stderr.getvalue())
+            self.assertIn("[train] DB 로드 완료", stderr.getvalue())
+            self.assertIn('"model_output"', stdout.getvalue())
+        finally:
+            os.unlink(model_path)
+
+    def test_db_clear_data_uses_maintenance_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.clear_transaction_data", return_value={"cleared_tables": 6}),
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(["db-clear-data"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"cleared_tables": 6', stdout.getvalue())
+
+    def test_db_refresh_derived_snapshots_uses_maintenance_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.refresh_transaction_derived_snapshots",
+                return_value={"property_condition_rows": 10, "urban_competitiveness_rows": 2},
+            ),
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(["db-refresh-derived-snapshots"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"property_condition_rows": 10', stdout.getvalue())
+
+    def test_db_import_complex_info_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_complex_basic_info_csv",
+                return_value={"matched_complexes": 3, "updated_complexes": 2},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-complex-info",
+                    "--input",
+                    "data/complex_basic_info.csv",
+                    "--reset-addresses",
+                    "--accept-remaining-matches",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(import_mock.call_args.kwargs["reset_addresses"])
+        self.assertTrue(import_mock.call_args.kwargs["accept_remaining_matches"])
+        self.assertIn('"matched_complexes": 3', stdout.getvalue())
+
+    def test_db_import_complex_conditions_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_complex_property_conditions_csv",
+                return_value={"matched_complexes": 3, "snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-complex-conditions",
+                    "--input",
+                    "data/complex_basic_info.csv",
+                    "--accept-remaining-matches",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(import_mock.call_args.kwargs["accept_remaining_matches"])
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_geocode_complexes_uses_kakao_geocoder(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.KakaoGeocoder") as geocoder_cls,
+            patch("hedonic_house_price.cli.get_kakao_rest_api_key", return_value="kakao-key"),
+            patch(
+                "hedonic_house_price.cli.geocode_missing_complex_coordinates",
+                return_value={"updated_complexes": 7},
+            ) as geocode_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-geocode-complexes",
+                    "--city-code",
+                    "busan",
+                    "--limit",
+                    "10",
+                    "--sleep-seconds",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        geocoder_cls.assert_called_once_with("kakao-key")
+        self.assertEqual(geocode_mock.call_args.kwargs["city_code"], "busan")
+        self.assertEqual(geocode_mock.call_args.kwargs["limit"], 10)
+        self.assertIn('"updated_complexes": 7', stdout.getvalue())
+
+    def test_db_import_school_distances_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_school_distance_snapshots_csv",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-school-distances",
+                    "--input",
+                    "data/schools.csv",
+                    "--source-name",
+                    "school_location",
+                    "--radius-m",
+                    "750",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/schools.csv")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "school_location")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_subway_distances_uses_kakao_geocoder_and_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.KakaoGeocoder") as geocoder_cls,
+            patch("hedonic_house_price.cli.get_kakao_rest_api_key", return_value="kakao-key"),
+            patch(
+                "hedonic_house_price.cli.import_subway_distance_snapshots_csvs",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-subway-distances",
+                    "--input",
+                    "data/seoul_gyeonggi_subway.csv",
+                    "--input",
+                    "data/seoul_metro.csv",
+                    "--radius-m",
+                    "750",
+                    "--sleep-seconds",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        geocoder_cls.assert_called_once_with("kakao-key")
+        self.assertEqual(import_mock.call_args.args[1], ["data/seoul_gyeonggi_subway.csv", "data/seoul_metro.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
+        self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_bus_stop_distances_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_bus_stop_distance_snapshots_csv",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-bus-stop-distances",
+                    "--input",
+                    "data/bus_stops.csv",
+                    "--source-name",
+                    "transport_access",
+                    "--radius-m",
+                    "750",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/bus_stops.csv")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_parks_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_park_environment_snapshots_xls",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-parks",
+                    "--input",
+                    "data/parks.xls",
+                    "--source-name",
+                    "park_standard_data",
+                    "--radius-m",
+                    "750",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/parks.xls")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "park_standard_data")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_access_times_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_average_access_time_snapshots_xlsx",
+                return_value={"snapshot_rows": 20},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-access-times",
+                    "--input",
+                    "data/access_times.xlsx",
+                    "--source-name",
+                    "transport_access",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.args[1], "data/access_times.xlsx")
+        self.assertEqual(import_mock.call_args.kwargs["source_name"], "transport_access")
+        self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_feature_coverage_uses_report_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.generate_feature_coverage_report",
+                return_value={
+                    "total_rows": 10,
+                    "feature_count": 35,
+                    "ready_features": 20,
+                    "partial_features": 5,
+                    "missing_features": 10,
+                    "csv_output": "artifacts/coverage/feature_coverage.csv",
+                    "markdown_output": "artifacts/coverage/feature_coverage.md",
+                },
+            ) as report_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-feature-coverage",
+                    "--output-dir",
+                    "artifacts/coverage",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report_mock.call_args.kwargs["output_dir"], "artifacts/coverage")
+        self.assertIn('"ready_features": 20', stdout.getvalue())
 
     def test_predict_command_parses_required_property_fields(self):
         args = build_parser().parse_args(
