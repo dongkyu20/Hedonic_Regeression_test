@@ -22,7 +22,7 @@ CORE_TRAINING_VIEW_COLUMNS = [
     "price_manwon",
 ]
 
-FACTOR_TRAINING_VIEW_COLUMNS = [
+REQUIRED_FACTOR_TRAINING_VIEW_COLUMNS = [
     "city_code",
     "household_count",
     "building_count",
@@ -51,6 +51,12 @@ FACTOR_TRAINING_VIEW_COLUMNS = [
     "park_area_total_m2_radius",
     "recent_transaction_count",
 ]
+
+OPTIONAL_FACTOR_TRAINING_VIEW_COLUMNS = [
+    "kapt_max_floor",
+]
+
+FACTOR_TRAINING_VIEW_COLUMNS = REQUIRED_FACTOR_TRAINING_VIEW_COLUMNS + OPTIONAL_FACTOR_TRAINING_VIEW_COLUMNS
 
 TRAINING_VIEW_COLUMNS = CORE_TRAINING_VIEW_COLUMNS + FACTOR_TRAINING_VIEW_COLUMNS
 
@@ -100,7 +106,7 @@ def read_transactions_from_training_view(
         where_parts.append(f"property_type IN ({placeholders})")
         params.extend(property_types)
     if require_complete_factors:
-        where_parts.extend(f"{column} IS NOT NULL" for column in FACTOR_TRAINING_VIEW_COLUMNS)
+        where_parts.extend(f"{column} IS NOT NULL" for column in REQUIRED_FACTOR_TRAINING_VIEW_COLUMNS)
 
     where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
     query = f"""

@@ -124,7 +124,10 @@ def make_feature_row(
 
     age = max(0, transaction.deal_year - transaction.build_year)
     has_land_area = transaction.land_area_m2 is not None and transaction.land_area_m2 > 0
-    estimated_max_floor = _estimated_max_floor(transaction, estimated_max_floors)
+    extra_features = getattr(transaction, "extra_features", {}) or {}
+    estimated_max_floor, max_floor_source = _max_floor_context(transaction, estimated_max_floors, extra_features)
+    relative_floor = transaction.floor / estimated_max_floor
+    floors_below_top = max(0, estimated_max_floor - transaction.floor)
 
     row: dict[str, float | int | str] = {
         "log_area_m2": math.log1p(transaction.exclusive_area_m2),
@@ -134,7 +137,11 @@ def make_feature_row(
         "low_floor": 1 if transaction.floor <= 3 else 0,
         "floor_band": floor_band(transaction.floor),
         "estimated_max_floor": estimated_max_floor,
-        "relative_floor": transaction.floor / estimated_max_floor,
+        "max_floor_source": max_floor_source,
+        "relative_floor": relative_floor,
+        "relative_floor_bin": relative_floor_bin(relative_floor),
+        "floors_below_estimated_top": floors_below_top,
+        "floors_below_estimated_top_bin": floors_below_top_bin(floors_below_top),
         "is_first_floor": 1 if transaction.floor == 1 else 0,
         "is_floor_2_3": 1 if 2 <= transaction.floor <= 3 else 0,
         "is_estimated_top_floor": 1 if transaction.floor == estimated_max_floor else 0,
@@ -148,7 +155,7 @@ def make_feature_row(
         "target_log_price": math.log(transaction.price_krw),
     }
 
-    _add_extra_feature_transforms(row, getattr(transaction, "extra_features", {}) or {})
+    _add_extra_feature_transforms(row, extra_features)
     return row
 
 
@@ -171,13 +178,60 @@ def _estimated_max_floor(
     transaction: Transaction,
     estimated_max_floors: dict[ComplexFloorKey, int] | None,
 ) -> int:
+    return _max_floor_context(transaction, estimated_max_floors, {})[0]
+
+
+def _max_floor_context(
+    transaction: Transaction,
+    estimated_max_floors: dict[ComplexFloorKey, int] | None,
+    extra_features: dict[str, object],
+) -> tuple[int, str]:
+    kapt_max_floor = _positive_int(extra_features.get("kapt_max_floor"))
+    if kapt_max_floor is not None:
+        if kapt_max_floor >= transaction.floor:
+            return kapt_max_floor, "kapt"
+        return transaction.floor, "current_floor"
+
     current_floor_estimate = _round_up_to_floor_step(transaction.floor)
     if not estimated_max_floors:
-        return current_floor_estimate
+        return current_floor_estimate, "current_floor_estimate"
     mapped_floor = estimated_max_floors.get(complex_floor_key(transaction))
     if mapped_floor is None:
-        return current_floor_estimate
-    return max(mapped_floor, current_floor_estimate)
+        return current_floor_estimate, "current_floor_estimate"
+    if mapped_floor >= current_floor_estimate:
+        return mapped_floor, "transaction_estimate"
+    return current_floor_estimate, "current_floor_estimate"
+
+
+def relative_floor_bin(value: object) -> str:
+    number = _optional_number(value)
+    if number is None:
+        return "missing"
+    if number <= 0.25:
+        return "relative_floor_0_25"
+    if number <= 0.5:
+        return "relative_floor_25_50"
+    if number <= 0.75:
+        return "relative_floor_50_75"
+    if number < 1.0:
+        return "relative_floor_75_100"
+    return "relative_floor_100"
+
+
+def floors_below_top_bin(value: object) -> str:
+    number = _optional_number(value)
+    if number is None:
+        return "missing"
+    floors = int(number)
+    if floors <= 0:
+        return "below_top_0"
+    if floors <= 2:
+        return "below_top_1_2"
+    if floors <= 5:
+        return "below_top_3_5"
+    if floors <= 10:
+        return "below_top_6_10"
+    return "below_top_11_plus"
 
 
 def _round_up_to_floor_step(floor: int, step: int = 4) -> int:
@@ -261,3 +315,10 @@ def _optional_number(value: object) -> float | None:
     if not text:
         return None
     return float(text)
+
+
+def _positive_int(value: object) -> int | None:
+    number = _optional_number(value)
+    if number is None or number <= 0:
+        return None
+    return max(1, int(number))

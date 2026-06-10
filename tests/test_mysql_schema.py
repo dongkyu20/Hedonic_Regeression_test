@@ -62,6 +62,8 @@ class MysqlSchemaTests(unittest.TestCase):
         self.assertIn("pcs_tx.source_name = 'transactions_derived'", sql)
         self.assertIn("pcs_kapt.source_name = 'kapt_basic_info'", sql)
         self.assertIn("COALESCE(pcs_kapt.household_count, pcs_tx.household_count)", sql)
+        self.assertIn("pcs_kapt.representative_floor AS kapt_max_floor", sql)
+        self.assertNotIn("COALESCE(pcs_kapt.representative_floor, pcs_tx.representative_floor)", sql)
 
     def test_training_view_joins_living_environment_sources_once(self):
         sql = SCHEMA_SQL.read_text(encoding="utf-8")

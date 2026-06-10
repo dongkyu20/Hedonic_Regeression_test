@@ -194,6 +194,7 @@ SELECT
   t.build_year,
   t.price_manwon,
   t.price_krw,
+  pcs_kapt.representative_floor AS kapt_max_floor,
   COALESCE(pcs_kapt.household_count, pcs_tx.household_count) AS household_count,
   COALESCE(pcs_kapt.building_count, pcs_tx.building_count) AS building_count,
   COALESCE(pcs_kapt.total_parking_spaces, pcs_tx.total_parking_spaces) AS total_parking_spaces,

@@ -6,7 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from .features import count_bin, make_feature_rows
+from .features import count_bin, floors_below_top_bin, make_feature_rows, relative_floor_bin
 from .modeling import TrainedModel, _chronological_split
 from .transactions import Transaction
 
@@ -118,7 +118,12 @@ def _segment_conditions(
         "district": transaction.district,
         "legal_dong": transaction.legal_dong,
         "floor_band": str(feature_row["floor_band"]),
-        "relative_floor_bin": _relative_floor_bin(feature_row.get("relative_floor")),
+        "max_floor_source": str(feature_row.get("max_floor_source", "unknown")),
+        "relative_floor_bin": str(feature_row.get("relative_floor_bin") or relative_floor_bin(feature_row.get("relative_floor"))),
+        "floors_below_estimated_top_bin": str(
+            feature_row.get("floors_below_estimated_top_bin")
+            or floors_below_top_bin(feature_row.get("floors_below_estimated_top"))
+        ),
         "is_first_floor": str(int(feature_row.get("is_first_floor", 0))),
         "is_floor_2_3": str(int(feature_row.get("is_floor_2_3", 0))),
         "is_estimated_top_floor": str(int(feature_row.get("is_estimated_top_floor", 0))),
@@ -264,21 +269,6 @@ def _area_bin(value: float) -> str:
     if value <= 135:
         return "area_102_135"
     return "area_135_plus"
-
-
-def _relative_floor_bin(value: Any) -> str:
-    number = _optional_number(value)
-    if number is None:
-        return "missing"
-    if number <= 0.25:
-        return "relative_floor_0_25"
-    if number <= 0.5:
-        return "relative_floor_25_50"
-    if number <= 0.75:
-        return "relative_floor_50_75"
-    if number < 1.0:
-        return "relative_floor_75_100"
-    return "relative_floor_100"
 
 
 def _household_count_bin(value: Any) -> str:

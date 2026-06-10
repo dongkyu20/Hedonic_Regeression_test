@@ -121,6 +121,25 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(inferred_top_floor["is_estimated_top_floor"], 1)
         self.assertEqual(inferred_top_floor["is_near_estimated_top_floor"], 1)
 
+    def test_make_feature_row_prefers_kapt_max_floor_for_relative_floor_features(self):
+        transaction = tx(floor=21, extra_features={"kapt_max_floor": 29})
+        estimates = {complex_floor_key(transaction): 24}
+
+        row = make_feature_row(
+            transaction,
+            first_month="202406",
+            estimated_max_floors=estimates,
+        )
+
+        self.assertEqual(row["estimated_max_floor"], 29)
+        self.assertEqual(row["max_floor_source"], "kapt")
+        self.assertAlmostEqual(row["relative_floor"], 21 / 29)
+        self.assertEqual(row["relative_floor_bin"], "relative_floor_50_75")
+        self.assertEqual(row["floors_below_estimated_top"], 8)
+        self.assertEqual(row["floors_below_estimated_top_bin"], "below_top_6_10")
+        self.assertEqual(row["is_estimated_top_floor"], 0)
+        self.assertEqual(row["is_near_estimated_top_floor"], 0)
+
     def test_make_feature_row_excludes_apartment_name_from_model_features(self):
         row = make_feature_row(tx(building_name="희귀단지"), first_month="202406")
 

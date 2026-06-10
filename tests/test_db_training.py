@@ -23,6 +23,7 @@ class DbTrainingTests(unittest.TestCase):
                 "build_year": 2005,
                 "price_manwon": 84500,
                 "household_count": 1500,
+                "kapt_max_floor": 29,
                 "nearest_subway_distance_m": 425.0,
                 "academy_count_radius": 27,
                 "park_area_total_m2_radius": 3200.0,
@@ -31,6 +32,7 @@ class DbTrainingTests(unittest.TestCase):
 
         self.assertEqual(getattr(tx, "extra_features", {})["city_code"], "seoul")
         self.assertEqual(getattr(tx, "extra_features", {})["household_count"], 1500)
+        self.assertEqual(getattr(tx, "extra_features", {})["kapt_max_floor"], 29)
         self.assertEqual(getattr(tx, "extra_features", {})["nearest_subway_distance_m"], 425.0)
         self.assertEqual(getattr(tx, "extra_features", {})["academy_count_radius"], 27)
         self.assertEqual(getattr(tx, "extra_features", {})["park_area_total_m2_radius"], 3200.0)
@@ -57,6 +59,7 @@ class DbTrainingTests(unittest.TestCase):
         query = connection.cursor_obj.statements[0]
         self.assertIn("city_code", query)
         self.assertIn("household_count", query)
+        self.assertIn("kapt_max_floor", query)
         self.assertIn("nearest_subway_distance_m", query)
         self.assertIn("academy_count_radius", query)
         self.assertIn("park_area_total_m2_radius", query)
@@ -73,6 +76,7 @@ class DbTrainingTests(unittest.TestCase):
         self.assertIn("nearest_hospital_distance_m IS NOT NULL", query)
         self.assertIn("park_area_total_m2_radius IS NOT NULL", query)
         self.assertIn("recent_transaction_count IS NOT NULL", query)
+        self.assertNotIn("kapt_max_floor IS NOT NULL", query)
 
     def test_read_transactions_from_training_view_can_include_incomplete_factor_rows_for_diagnostics(self):
         connection = FakeConnection([])

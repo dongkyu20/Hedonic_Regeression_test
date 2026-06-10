@@ -25,8 +25,12 @@
 |---|---|---|
 | `floor` | `floor_band` | 층을 구간화합니다: `floor_1`, `floor_2_3`, `floor_4_7`, `floor_8_12`, `floor_13_18`, `floor_19_25`, `floor_26_plus`. 문자열 범주라서 원핫 인코딩됩니다. |
 | `floor` | `low_floor` | 3층 이하이면 `1`, 아니면 `0`입니다. |
-| `floor`, 단지별 거래내역 | `estimated_max_floor` | `(property_type, lawd_cd, legal_dong, building_name)` 단위로 관측 최고 거래층을 구하고 4층 단위로 올림합니다. 예: 관측 최고 21층은 24층, 7층은 8층으로 추정합니다. |
+| `kapt_max_floor`, `floor`, 단지별 거래내역 | `estimated_max_floor` | KAPT 단지 기본정보의 최고층(`kapt_max_floor`)이 있으면 우선 사용합니다. 없으면 `(property_type, lawd_cd, legal_dong, building_name)` 단위의 학습 split 관측 최고 거래층을 4층 단위로 올림해 사용합니다. 예: 관측 최고 21층은 24층, 7층은 8층으로 추정합니다. |
+| `kapt_max_floor`, 단지별 거래내역 | `max_floor_source` | 최고층 기준의 출처를 `kapt`, `transaction_estimate`, `current_floor_estimate`, `current_floor` 범주로 기록합니다. 문자열 범주라서 원핫 인코딩됩니다. |
 | `floor`, `estimated_max_floor` | `relative_floor` | `floor / estimated_max_floor`로 계산합니다. 같은 20층이라도 단지 최고층 대비 상대 위치를 반영합니다. |
+| `relative_floor` | `relative_floor_bin` | 상대층수를 `relative_floor_0_25`, `relative_floor_25_50`, `relative_floor_50_75`, `relative_floor_75_100`, `relative_floor_100`으로 구간화합니다. |
+| `floor`, `estimated_max_floor` | `floors_below_estimated_top` | 추정/공식 최고층에서 현재 거래층을 뺀 값입니다. 최상단까지 남은 층수를 숫자로 반영합니다. |
+| `floors_below_estimated_top` | `floors_below_estimated_top_bin` | 최상단까지 남은 층수를 `below_top_0`, `below_top_1_2`, `below_top_3_5`, `below_top_6_10`, `below_top_11_plus`로 구간화합니다. |
 | `floor` | `is_first_floor` | 1층이면 `1`, 아니면 `0`입니다. |
 | `floor` | `is_floor_2_3` | 2~3층이면 `1`, 아니면 `0`입니다. |
 | `floor`, `estimated_max_floor` | `is_estimated_top_floor` | 거래층이 추정 최고층과 같으면 `1`, 아니면 `0`입니다. |
