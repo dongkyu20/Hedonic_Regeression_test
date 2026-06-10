@@ -81,7 +81,6 @@ CREATE TABLE IF NOT EXISTS property_condition_snapshots (
   exclusive_area_m2 DECIMAL(10, 3) NULL,
   representative_floor INT NULL,
   build_year SMALLINT UNSIGNED NULL,
-  building_age_years SMALLINT UNSIGNED NULL,
   household_count INT UNSIGNED NULL,
   building_count INT UNSIGNED NULL,
   total_parking_spaces INT UNSIGNED NULL,

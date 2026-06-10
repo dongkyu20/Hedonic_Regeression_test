@@ -44,6 +44,12 @@ class MysqlSchemaTests(unittest.TestCase):
 
         self.assertNotIn("monthly_maintenance_fee_krw", sql)
 
+    def test_property_condition_schema_excludes_building_age_years(self):
+        sql = SCHEMA_SQL.read_text(encoding="utf-8")
+
+        self.assertIn("build_year SMALLINT UNSIGNED NULL", sql)
+        self.assertNotIn("building_age_years", sql)
+
     def test_living_environment_schema_excludes_nearest_high_school_distance(self):
         sql = SCHEMA_SQL.read_text(encoding="utf-8")
 
