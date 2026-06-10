@@ -21,7 +21,7 @@ class RunMetadata:
     validation_months: int
     model_type: str
     hyperparameters: dict[str, float | int | str]
-    preprocessing_version: str = "db_preprocessed_v2"
+    preprocessing_version: str = "db_preprocessed_v3"
     target: str = "log(price_krw)"
 
 

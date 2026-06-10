@@ -11,6 +11,10 @@ from .linear_model import HistGradientBoostingPipeline
 from .transactions import Transaction, normalize_property_type
 
 
+TARGET_ENCODING_COLUMNS = ("district", "legal_dong")
+TARGET_ENCODING_SMOOTHING = 20.0
+
+
 @dataclass(frozen=True)
 class PredictionInput:
     district: str
@@ -47,6 +51,14 @@ class PredictionInput:
 
 
 @dataclass
+class TargetEncodingMap:
+    global_mean: float = 0.0
+    smoothing: float = TARGET_ENCODING_SMOOTHING
+    values: dict[str, dict[str, float]] = field(default_factory=dict)
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+
+
+@dataclass
 class TrainedModel:
     pipeline: HistGradientBoostingPipeline
     first_month: str
@@ -57,6 +69,7 @@ class TrainedModel:
     validation_rows: int
     estimated_max_floors: dict[tuple[str, str, str, str], int] = field(default_factory=dict)
     dropped_features: set[str] = field(default_factory=set)
+    target_encodings: TargetEncodingMap = field(default_factory=TargetEncodingMap)
 
 def train_hedonic_model(
     transactions: list[Transaction],
@@ -94,6 +107,8 @@ def train_hedonic_model(
         first_month=first_month,
         estimated_max_floors=estimated_max_floors,
     )
+    target_encodings = fit_target_encodings(raw_train_rows)
+    raw_train_rows = apply_target_encodings(raw_train_rows, target_encodings)
     dropped_feature_names = _constant_feature_names(raw_train_rows)
     train_rows = _drop_features(
         raw_train_rows,
@@ -106,6 +121,7 @@ def train_hedonic_model(
         first_month=first_month,
         estimated_max_floors=estimated_max_floors,
     )
+    raw_validation_rows = apply_target_encodings(raw_validation_rows, target_encodings)
     validation_rows = _drop_features(
         raw_validation_rows,
         dropped_feature_names,
@@ -136,10 +152,13 @@ def train_hedonic_model(
     _report(progress, "evaluate", rows=len(validation_rows or train_rows), mape=metrics["mape"], r2_log=metrics["r2_log"])
 
     all_rows = _drop_features(
-        make_feature_rows(
-            usable,
-            first_month=first_month,
-            estimated_max_floors=estimated_max_floors,
+        apply_target_encodings(
+            make_feature_rows(
+                usable,
+                first_month=first_month,
+                estimated_max_floors=estimated_max_floors,
+            ),
+            target_encodings,
         ),
         dropped_feature_names,
     )
@@ -156,24 +175,90 @@ def train_hedonic_model(
         validation_rows=len(validation_rows),
         estimated_max_floors=estimated_max_floors,
         dropped_features=dropped_feature_names,
+        target_encodings=target_encodings,
     )
     _report(progress, "complete", training_rows=model.training_rows, validation_rows=model.validation_rows)
     return model
 
 
 def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dict[str, int | float]:
-    feature_row = make_feature_row(
-        prediction_input.to_transaction(),
-        first_month=model.first_month,
-        estimated_max_floors=getattr(model, "estimated_max_floors", {}),
+    feature_row = _drop_features(
+        [
+            apply_target_encoding(
+                make_feature_row(
+                    prediction_input.to_transaction(),
+                    first_month=model.first_month,
+                    estimated_max_floors=getattr(model, "estimated_max_floors", {}),
+                ),
+                getattr(model, "target_encodings", TargetEncodingMap()),
+            )
+        ],
+        getattr(model, "dropped_features", set()),
     )
-    predicted_log_price = model.pipeline.predict_one(feature_row)
+    predicted_log_price = model.pipeline.predict_one(feature_row[0])
     price_krw = int(round(math.exp(predicted_log_price)))
     return {
         "log_price": predicted_log_price,
         "price_krw": price_krw,
         "price_manwon": round(price_krw / 10_000),
     }
+
+
+def fit_target_encodings(
+    rows: list[dict[str, object]],
+    *,
+    columns: tuple[str, ...] = TARGET_ENCODING_COLUMNS,
+    smoothing: float = TARGET_ENCODING_SMOOTHING,
+) -> TargetEncodingMap:
+    target_values = [float(row["target_log_price"]) for row in rows if "target_log_price" in row]
+    global_mean = sum(target_values) / len(target_values) if target_values else 0.0
+    values: dict[str, dict[str, float]] = {}
+    counts: dict[str, dict[str, int]] = {}
+
+    for column in columns:
+        grouped: dict[str, list[float]] = {}
+        for row in rows:
+            if column not in row or "target_log_price" not in row:
+                continue
+            grouped.setdefault(str(row[column]), []).append(float(row["target_log_price"]))
+
+        values[column] = {
+            category: (sum(category_values) + smoothing * global_mean) / (len(category_values) + smoothing)
+            for category, category_values in grouped.items()
+        }
+        counts[column] = {
+            category: len(category_values)
+            for category, category_values in grouped.items()
+        }
+
+    return TargetEncodingMap(
+        global_mean=global_mean,
+        smoothing=smoothing,
+        values=values,
+        counts=counts,
+    )
+
+
+def apply_target_encodings(
+    rows: list[dict[str, object]],
+    target_encodings: TargetEncodingMap,
+) -> list[dict[str, object]]:
+    return [apply_target_encoding(row, target_encodings) for row in rows]
+
+
+def apply_target_encoding(
+    row: dict[str, object],
+    target_encodings: TargetEncodingMap,
+) -> dict[str, object]:
+    encoded_row = dict(row)
+    for column in TARGET_ENCODING_COLUMNS:
+        category = str(row.get(column, ""))
+        value = target_encodings.values.get(column, {}).get(category, target_encodings.global_mean)
+        count = target_encodings.counts.get(column, {}).get(category, 0)
+        encoded_row[f"{column}_target_log_price_smooth"] = value
+        encoded_row[f"{column}_target_log_price_delta"] = value - target_encodings.global_mean
+        encoded_row[f"{column}_target_count_log1p"] = math.log1p(count)
+    return encoded_row
 
 
 def evaluate_rows(pipeline: HistGradientBoostingPipeline, rows: list[dict[str, object]]) -> dict[str, float]:

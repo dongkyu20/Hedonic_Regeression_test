@@ -7,7 +7,7 @@ from statistics import median
 from typing import Any
 
 from .features import count_bin, floors_below_top_bin, make_feature_rows, relative_floor_bin
-from .modeling import TrainedModel, _chronological_split
+from .modeling import TargetEncodingMap, TrainedModel, _chronological_split, _drop_features, apply_target_encodings
 from .transactions import Transaction
 
 
@@ -42,10 +42,16 @@ def generate_residual_diagnostics(
     if not validation_transactions:
         raise ValueError("no validation rows available for diagnostics")
 
-    feature_rows = make_feature_rows(
-        validation_transactions,
-        first_month=model.first_month,
-        estimated_max_floors=getattr(model, "estimated_max_floors", {}),
+    feature_rows = _drop_features(
+        apply_target_encodings(
+            make_feature_rows(
+                validation_transactions,
+                first_month=model.first_month,
+                estimated_max_floors=getattr(model, "estimated_max_floors", {}),
+            ),
+            getattr(model, "target_encodings", TargetEncodingMap()),
+        ),
+        getattr(model, "dropped_features", set()),
     )
     predicted_log_prices = model.pipeline.predict(feature_rows)
     residual_records = [

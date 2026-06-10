@@ -15,6 +15,8 @@
 | `deal_month` | `calendar_month` | `1`-`12` 문자열 범주로 사용하며 원핫 인코딩됩니다. |
 | `district` | `district` | 구 단위 문자열 범주로 사용하며 원핫 인코딩됩니다. |
 | `legal_dong` | `legal_dong` | 법정동 문자열 범주로 사용하며 원핫 인코딩됩니다. |
+| `district`, `target_log_price` | `district_target_log_price_smooth`, `district_target_log_price_delta`, `district_target_count_log1p` | 학습 split에서만 구별 평균 `target_log_price`를 계산한 뒤 전체 학습 평균으로 smoothing합니다. smoothing 값은 `20.0`입니다. validation, diagnostics, prediction에서는 저장된 학습 split encoding만 사용하며, 학습에서 보지 못한 구는 전체 학습 평균으로 대체합니다. |
+| `legal_dong`, `target_log_price` | `legal_dong_target_log_price_smooth`, `legal_dong_target_log_price_delta`, `legal_dong_target_count_log1p` | 학습 split에서만 법정동별 평균 `target_log_price`를 계산한 뒤 전체 학습 평균으로 smoothing합니다. 표본 수는 `log1p(count)`로 함께 넣어 encoding 신뢰도를 모델이 구분할 수 있게 합니다. validation 가격은 encoding 계산에 사용하지 않습니다. |
 | `property_type` | `property_type` | 주택유형 문자열 범주로 사용하며 원핫 인코딩됩니다. 현재 DB 학습은 주로 `apartment`만 사용합니다. |
 | `house_type` | `house_type` | 세부 주택유형 문자열 범주입니다. 빈 값은 `unknown`으로 바꿉니다. |
 | `building_name` | 없음 | 건물명/단지명은 학습 변수에서 제외합니다. |

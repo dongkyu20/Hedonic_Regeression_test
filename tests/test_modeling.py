@@ -1,9 +1,12 @@
+import math
 import os
 import tempfile
 import unittest
 
 from hedonic_house_price.modeling import (
     PredictionInput,
+    TARGET_ENCODING_SMOOTHING,
+    TrainedModel,
     load_model,
     predict_price,
     save_model,
@@ -231,6 +234,115 @@ class ModelingTests(unittest.TestCase):
         )
 
         self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 8)
+
+    def test_train_hedonic_model_adds_training_split_smoothed_target_encodings(self):
+        transactions = []
+        for idx, (district, lawd_cd, legal_dong, price_manwon) in enumerate(
+            [
+                ("강남구", "11680", "역삼동", 90_000),
+                ("강남구", "11680", "역삼동", 91_000),
+                ("강남구", "11680", "역삼동", 92_000),
+                ("마포구", "11440", "공덕동", 60_000),
+                ("마포구", "11440", "공덕동", 61_000),
+                ("마포구", "11440", "공덕동", 62_000),
+                ("강남구", "11680", "역삼동", 300_000),
+                ("강남구", "11680", "역삼동", 320_000),
+            ]
+        ):
+            transactions.append(
+                Transaction(
+                    district=district,
+                    lawd_cd=lawd_cd,
+                    deal_year=2025,
+                    deal_month=idx + 1,
+                    deal_day=10,
+                    legal_dong=legal_dong,
+                    building_name="인코딩단지",
+                    property_type="apartment",
+                    exclusive_area_m2=84.9,
+                    floor=[2, 6, 10, 15][idx % 4],
+                    build_year=2008,
+                    price_manwon=price_manwon,
+                )
+            )
+
+        model = train_hedonic_model(
+            transactions,
+            max_iter=20,
+            min_samples_leaf=1,
+            random_state=42,
+            validation_months=2,
+        )
+
+        train_log_prices = [math.log(transaction.price_krw) for transaction in transactions[:6]]
+        global_mean = sum(train_log_prices) / len(train_log_prices)
+        gangnam_logs = train_log_prices[:3]
+        expected_gangnam = (sum(gangnam_logs) + TARGET_ENCODING_SMOOTHING * global_mean) / (
+            len(gangnam_logs) + TARGET_ENCODING_SMOOTHING
+        )
+
+        self.assertAlmostEqual(model.target_encodings.global_mean, global_mean)
+        self.assertAlmostEqual(
+            model.target_encodings.values["legal_dong"]["역삼동"],
+            expected_gangnam,
+        )
+        self.assertEqual(model.target_encodings.counts["legal_dong"]["역삼동"], 3)
+        feature_names = model.pipeline.estimator.named_steps["vectorizer"].feature_names_
+        self.assertIn("legal_dong_target_log_price_smooth", feature_names)
+        self.assertIn("district_target_log_price_smooth", feature_names)
+
+    def test_predict_price_applies_target_encodings_and_dropped_features(self):
+        class CapturingPipeline:
+            def __init__(self):
+                self.row = {}
+
+            def predict_one(self, row):
+                self.row = row
+                return math.log(100_000_000)
+
+        pipeline = CapturingPipeline()
+        model = TrainedModel(
+            pipeline=pipeline,
+            first_month="202501",
+            common_apartments=set(),
+            metrics={},
+            residuals_by_floor_band={},
+            training_rows=1,
+            validation_rows=0,
+            dropped_features={"district"},
+        )
+        model.target_encodings.global_mean = 20.0
+        model.target_encodings.values = {
+            "district": {"강남구": 21.0},
+            "legal_dong": {"역삼동": 22.0},
+        }
+        model.target_encodings.counts = {
+            "district": {"강남구": 10},
+            "legal_dong": {"역삼동": 5},
+        }
+
+        predict_price(
+            model,
+            PredictionInput(
+                district="강남구",
+                lawd_cd="11680",
+                deal_year=2025,
+                deal_month=12,
+                deal_day=15,
+                legal_dong="역삼동",
+                apartment_name="인코딩단지",
+                property_type="apartment",
+                exclusive_area_m2=84.9,
+                floor=10,
+                build_year=2008,
+            ),
+        )
+
+        self.assertNotIn("district", pipeline.row)
+        self.assertEqual(pipeline.row["district_target_log_price_smooth"], 21.0)
+        self.assertEqual(pipeline.row["district_target_count_log1p"], math.log1p(10))
+        self.assertEqual(pipeline.row["legal_dong_target_log_price_smooth"], 22.0)
+        self.assertEqual(pipeline.row["legal_dong_target_count_log1p"], math.log1p(5))
 
     def test_train_hedonic_model_reports_progress_events_in_order(self):
         events = []
