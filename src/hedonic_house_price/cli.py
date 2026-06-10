@@ -62,11 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser = subparsers.add_parser("train", help="Train the hedonic regression model.")
     train_parser.add_argument("--input", default="data/seoul_apartment_trades.csv")
     train_parser.add_argument("--model-output", default="artifacts/hedonic_model.pkl")
-    train_parser.add_argument("--n-estimators", type=int, default=40)
-    train_parser.add_argument("--max-depth", type=int, default=20)
-    train_parser.add_argument("--min-samples-leaf", type=int, default=5)
+    train_parser.add_argument("--max-iter", type=int, default=300)
+    train_parser.add_argument("--learning-rate", type=float, default=0.06)
+    train_parser.add_argument("--max-leaf-nodes", type=int, default=31)
+    train_parser.add_argument("--min-samples-leaf", type=int, default=30)
+    train_parser.add_argument("--l2-regularization", type=float, default=0.0)
     train_parser.add_argument("--random-state", type=int, default=42)
-    train_parser.add_argument("--n-jobs", type=int, default=-1)
     train_parser.add_argument("--min-apartment-count", type=int, default=5, help=argparse.SUPPRESS)
     train_parser.add_argument("--validation-months", type=int, default=6)
     train_parser.add_argument("--run-output-dir", default=None, help="Optional directory for a full training-run manifest and artifacts.")
@@ -390,11 +391,12 @@ def _handle_train(args: argparse.Namespace) -> int:
 
     model = train_hedonic_model(
         transactions,
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth,
+        max_iter=args.max_iter,
+        learning_rate=args.learning_rate,
+        max_leaf_nodes=args.max_leaf_nodes,
         min_samples_leaf=args.min_samples_leaf,
+        l2_regularization=args.l2_regularization,
         random_state=args.random_state,
-        n_jobs=args.n_jobs,
         min_apartment_count=args.min_apartment_count,
         validation_months=args.validation_months,
         progress=lambda event: _print_model_progress(event, started),
@@ -415,13 +417,14 @@ def _handle_train(args: argparse.Namespace) -> int:
                 property_types=property_types,
                 complete_case_only=bool(args.from_db),
                 validation_months=args.validation_months,
-                model_type="RandomForest",
+                model_type="HistGradientBoosting",
                 hyperparameters={
-                    "n_estimators": args.n_estimators,
-                    "max_depth": args.max_depth,
+                    "max_iter": args.max_iter,
+                    "learning_rate": args.learning_rate,
+                    "max_leaf_nodes": args.max_leaf_nodes,
                     "min_samples_leaf": args.min_samples_leaf,
+                    "l2_regularization": args.l2_regularization,
                     "random_state": args.random_state,
-                    "n_jobs": args.n_jobs,
                 },
             ),
         )
@@ -469,13 +472,14 @@ def _print_model_progress(event: dict[str, object], started: float) -> None:
         _print_train_progress("특성 생성", dataset="validation", rows=event["rows"], elapsed_s=_elapsed(started))
     elif stage == "fit":
         _print_train_progress(
-            "sklearn RandomForest 학습",
+            "sklearn HistGradientBoosting 학습",
             training_rows=event["training_rows"],
-            n_estimators=event["n_estimators"],
-            max_depth=event["max_depth"],
+            max_iter=event["max_iter"],
+            learning_rate=event["learning_rate"],
+            max_leaf_nodes=event["max_leaf_nodes"],
             min_samples_leaf=event["min_samples_leaf"],
+            l2_regularization=event["l2_regularization"],
             random_state=event["random_state"],
-            n_jobs=event["n_jobs"],
             elapsed_s=_elapsed(started),
         )
     elif stage == "evaluate":

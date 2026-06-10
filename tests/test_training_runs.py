@@ -34,9 +34,8 @@ class TrainingRunsTests(unittest.TestCase):
     def test_write_training_run_artifacts_records_manifest_model_and_features(self):
         model = train_hedonic_model(
             sample_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             validation_months=2,
         )
 
@@ -52,13 +51,14 @@ class TrainingRunsTests(unittest.TestCase):
                     property_types=["apartment"],
                     complete_case_only=True,
                     validation_months=2,
-                    model_type="RandomForest",
+                    model_type="HistGradientBoosting",
                     hyperparameters={
-                        "n_estimators": 10,
-                        "max_depth": 20,
+                        "max_iter": 20,
+                        "learning_rate": 0.06,
+                        "max_leaf_nodes": 31,
                         "min_samples_leaf": 5,
+                        "l2_regularization": 0.0,
                         "random_state": 42,
-                        "n_jobs": 1,
                     },
                 ),
                 preprocessing_doc_path=preprocessing_doc,
@@ -77,8 +77,8 @@ class TrainingRunsTests(unittest.TestCase):
             self.assertEqual(manifest["data_source"], "mysql.model_training_features")
             self.assertEqual(manifest["property_types"], ["apartment"])
             self.assertTrue(manifest["complete_case_only"])
-            self.assertEqual(manifest["model_type"], "RandomForest")
-            self.assertEqual(manifest["hyperparameters"]["n_estimators"], 10)
+            self.assertEqual(manifest["model_type"], "HistGradientBoosting")
+            self.assertEqual(manifest["hyperparameters"]["max_iter"], 20)
             self.assertEqual(manifest["hyperparameters"]["min_samples_leaf"], 5)
             self.assertEqual(manifest["artifact_paths"]["model"], "model.pkl")
             self.assertIn("mape", metrics)

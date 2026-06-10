@@ -1,10 +1,10 @@
 import unittest
 
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.pipeline import Pipeline
 
-from hedonic_house_price.linear_model import RandomForestPipeline
+from hedonic_house_price.linear_model import HistGradientBoostingPipeline
 
 
 def row(x, district="강남구", floor_band="floor_13_18", target=None):
@@ -27,39 +27,42 @@ def row(x, district="강남구", floor_band="floor_13_18", target=None):
 
 
 class LinearModelTests(unittest.TestCase):
-    def test_random_forest_pipeline_uses_sklearn_pipeline_components(self):
+    def test_hist_gradient_boosting_pipeline_uses_sklearn_pipeline_components(self):
         rows = [
             row(1, district="강남구", target=11.0),
             row(2, district="마포구", target=13.0),
         ]
-        pipeline = RandomForestPipeline(
-            n_estimators=7,
-            max_depth=5,
+        pipeline = HistGradientBoostingPipeline(
+            max_iter=7,
+            learning_rate=0.04,
+            max_leaf_nodes=15,
             min_samples_leaf=3,
+            l2_regularization=0.2,
             random_state=11,
-            n_jobs=1,
         )
         pipeline.fit(rows)
 
         self.assertIsInstance(pipeline.estimator, Pipeline)
         self.assertIsInstance(pipeline.estimator.named_steps["vectorizer"], DictVectorizer)
+        self.assertFalse(pipeline.estimator.named_steps["vectorizer"].sparse)
         self.assertNotIn("scaler", pipeline.estimator.named_steps)
-        self.assertIsInstance(pipeline.estimator.named_steps["random_forest"], RandomForestRegressor)
-        self.assertEqual(pipeline.estimator.named_steps["random_forest"].n_estimators, 7)
-        self.assertEqual(pipeline.estimator.named_steps["random_forest"].max_depth, 5)
-        self.assertEqual(pipeline.estimator.named_steps["random_forest"].min_samples_leaf, 3)
-        self.assertEqual(pipeline.estimator.named_steps["random_forest"].random_state, 11)
-        self.assertEqual(pipeline.estimator.named_steps["random_forest"].n_jobs, 1)
+        self.assertIsInstance(pipeline.estimator.named_steps["hist_gradient_boosting"], HistGradientBoostingRegressor)
+        self.assertEqual(pipeline.estimator.named_steps["hist_gradient_boosting"].max_iter, 7)
+        self.assertEqual(pipeline.estimator.named_steps["hist_gradient_boosting"].learning_rate, 0.04)
+        self.assertEqual(pipeline.estimator.named_steps["hist_gradient_boosting"].max_leaf_nodes, 15)
+        self.assertEqual(pipeline.estimator.named_steps["hist_gradient_boosting"].min_samples_leaf, 3)
+        self.assertEqual(pipeline.estimator.named_steps["hist_gradient_boosting"].l2_regularization, 0.2)
+        self.assertEqual(pipeline.estimator.named_steps["hist_gradient_boosting"].random_state, 11)
         self.assertIn("__bias__", pipeline.estimator.named_steps["vectorizer"].feature_names_)
 
-    def test_random_forest_pipeline_predicts_from_feature_rows_with_unseen_categories(self):
+    def test_hist_gradient_boosting_pipeline_predicts_from_feature_rows_with_unseen_categories(self):
         rows = [
             row(1, district="강남구", target=11.0),
             row(2, district="강남구", target=13.0),
             row(3, district="마포구", target=15.0),
             row(4, district="마포구", target=17.0),
         ]
-        pipeline = RandomForestPipeline(n_estimators=20, random_state=42, n_jobs=1)
+        pipeline = HistGradientBoostingPipeline(max_iter=20, min_samples_leaf=1, random_state=42)
         pipeline.fit(rows)
 
         prediction = pipeline.predict_one(row(5, district="마포구"))

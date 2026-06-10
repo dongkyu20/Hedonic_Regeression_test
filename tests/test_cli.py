@@ -111,27 +111,30 @@ class CliTests(unittest.TestCase):
                 "data/input.csv",
                 "--model-output",
                 "artifacts/model.json",
-                "--n-estimators",
+                "--max-iter",
                 "25",
-                "--max-depth",
-                "8",
+                "--learning-rate",
+                "0.04",
+                "--max-leaf-nodes",
+                "15",
                 "--min-samples-leaf",
                 "3",
+                "--l2-regularization",
+                "0.2",
                 "--random-state",
                 "17",
-                "--n-jobs",
-                "1",
             ]
         )
 
         self.assertEqual(args.command, "train")
         self.assertEqual(args.input, "data/input.csv")
         self.assertEqual(args.model_output, "artifacts/model.json")
-        self.assertEqual(args.n_estimators, 25)
-        self.assertEqual(args.max_depth, 8)
+        self.assertEqual(args.max_iter, 25)
+        self.assertEqual(args.learning_rate, 0.04)
+        self.assertEqual(args.max_leaf_nodes, 15)
         self.assertEqual(args.min_samples_leaf, 3)
+        self.assertEqual(args.l2_regularization, 0.2)
         self.assertEqual(args.random_state, 17)
-        self.assertEqual(args.n_jobs, 1)
 
     def test_train_command_parses_run_output_dir(self):
         args = build_parser().parse_args(
@@ -148,9 +151,11 @@ class CliTests(unittest.TestCase):
         args = build_parser().parse_args(["train"])
 
         self.assertEqual(args.model_output, "artifacts/hedonic_model.pkl")
-        self.assertEqual(args.n_estimators, 40)
-        self.assertEqual(args.max_depth, 20)
-        self.assertEqual(args.min_samples_leaf, 5)
+        self.assertEqual(args.max_iter, 300)
+        self.assertEqual(args.learning_rate, 0.06)
+        self.assertEqual(args.max_leaf_nodes, 31)
+        self.assertEqual(args.min_samples_leaf, 30)
+        self.assertEqual(args.l2_regularization, 0.0)
         self.assertEqual(args.random_state, 42)
 
     def test_gui_command_parses_local_server_options(self):
@@ -472,9 +477,9 @@ class CliTests(unittest.TestCase):
                         input_path,
                         "--model-output",
                         model_path,
-                        "--n-estimators",
-                        "10",
-                        "--n-jobs",
+                        "--max-iter",
+                        "20",
+                        "--min-samples-leaf",
                         "1",
                         "--min-apartment-count",
                         "2",
@@ -487,7 +492,7 @@ class CliTests(unittest.TestCase):
             progress_text = stderr.getvalue()
             self.assertIn("[train] CSV 로드 시작", progress_text)
             self.assertIn("[train] 특성 생성", progress_text)
-            self.assertIn("[train] sklearn RandomForest 학습", progress_text)
+            self.assertIn("[train] sklearn HistGradientBoosting 학습", progress_text)
             self.assertIn("[train] 모델 저장 완료", progress_text)
             self.assertIn('"model_output"', stdout.getvalue())
         finally:
@@ -516,9 +521,9 @@ class CliTests(unittest.TestCase):
                             model_path,
                             "--run-output-dir",
                             str(run_dir),
-                            "--n-estimators",
-                            "10",
-                            "--n-jobs",
+                            "--max-iter",
+                            "20",
+                            "--min-samples-leaf",
                             "1",
                             "--min-apartment-count",
                             "2",
@@ -611,9 +616,9 @@ class CliTests(unittest.TestCase):
                         "seoul",
                         "--model-output",
                         model_path,
-                        "--n-estimators",
-                        "10",
-                        "--n-jobs",
+                        "--max-iter",
+                        "20",
+                        "--min-samples-leaf",
                         "1",
                         "--min-apartment-count",
                         "2",

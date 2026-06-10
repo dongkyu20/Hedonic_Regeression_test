@@ -26,9 +26,8 @@ def sample_model():
         )
     return train_hedonic_model(
         transactions,
-        n_estimators=10,
+        max_iter=20,
         random_state=42,
-        n_jobs=1,
         min_apartment_count=2,
         validation_months=2,
     )

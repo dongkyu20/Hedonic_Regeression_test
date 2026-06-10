@@ -106,9 +106,8 @@ class ModelingTests(unittest.TestCase):
     def test_train_hedonic_model_reports_metrics_and_floor_residuals(self):
         model = train_hedonic_model(
             sample_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             min_apartment_count=2,
             validation_months=2,
         )
@@ -123,7 +122,7 @@ class ModelingTests(unittest.TestCase):
         self.assertIsInstance(model.dropped_features, set)
         self.assertEqual(model.common_apartments, set())
         feature_names = model.pipeline.estimator.named_steps["vectorizer"].feature_names_
-        self.assertIn("random_forest", model.pipeline.estimator.named_steps)
+        self.assertIn("hist_gradient_boosting", model.pipeline.estimator.named_steps)
         self.assertFalse(any("apartment_name" in name or "building_name" in name for name in feature_names))
         self.assertTrue(any("property_type=apartment" == name for name in feature_names))
         self.assertTrue(any("property_type=officetel" == name for name in feature_names))
@@ -133,9 +132,8 @@ class ModelingTests(unittest.TestCase):
     def test_train_hedonic_model_drops_constant_non_apartment_features(self):
         model = train_hedonic_model(
             apartment_only_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             min_apartment_count=2,
             validation_months=2,
         )
@@ -149,9 +147,8 @@ class ModelingTests(unittest.TestCase):
     def test_train_hedonic_model_uses_preprocessed_db_feature_set(self):
         model = train_hedonic_model(
             enriched_apartment_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             min_apartment_count=2,
             validation_months=2,
         )
@@ -199,9 +196,8 @@ class ModelingTests(unittest.TestCase):
 
         model = train_hedonic_model(
             transactions,
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             validation_months=2,
         )
 
@@ -212,9 +208,8 @@ class ModelingTests(unittest.TestCase):
 
         train_hedonic_model(
             sample_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             min_apartment_count=2,
             validation_months=2,
             progress=events.append,
@@ -240,9 +235,8 @@ class ModelingTests(unittest.TestCase):
     def test_predict_price_returns_krw_and_manwon_values(self):
         model = train_hedonic_model(
             sample_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             min_apartment_count=2,
         )
 
@@ -269,9 +263,8 @@ class ModelingTests(unittest.TestCase):
     def test_model_artifact_round_trips_as_sklearn_pickle(self):
         model = train_hedonic_model(
             sample_transactions(),
-            n_estimators=10,
+            max_iter=20,
             random_state=42,
-            n_jobs=1,
             min_apartment_count=2,
         )
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as handle:
@@ -282,7 +275,7 @@ class ModelingTests(unittest.TestCase):
             with open(path, "rb") as handle:
                 self.assertEqual(handle.read(1), b"\x80")
             restored = load_model(path)
-            self.assertIn("random_forest", restored.pipeline.estimator.named_steps)
+            self.assertIn("hist_gradient_boosting", restored.pipeline.estimator.named_steps)
 
             original = predict_price(
                 model,

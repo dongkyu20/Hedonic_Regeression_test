@@ -2,7 +2,7 @@
 
 이 문서는 `model_training_features` 뷰와 거래 원천값이 학습 전에 어떻게 변환되는지 정리합니다.
 
-현재 모델의 종속변수는 `log(price_krw)`입니다. 문자열 변수는 `DictVectorizer`를 통해 원핫 인코딩되고, 숫자 변수는 sklearn pipeline 안에서 `StandardScaler(with_mean=False)`로 스케일링됩니다.
+현재 모델의 종속변수는 `log(price_krw)`입니다. 문자열 변수는 `DictVectorizer(sparse=False)`를 통해 원핫 인코딩되고, 숫자 변수는 별도 스케일링 없이 `HistGradientBoostingRegressor`에 입력됩니다.
 
 ## 핵심 거래 변수
 

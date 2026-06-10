@@ -1,23 +1,27 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
-from sklearn.ensemble import RandomForestRegressor
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.pipeline import Pipeline
 
 
 @dataclass
-class RandomForestPipeline:
-    n_estimators: int = 40
-    max_depth: int | None = 20
-    min_samples_leaf: int = 5
+class HistGradientBoostingPipeline:
+    max_iter: int = 300
+    learning_rate: float = 0.06
+    max_leaf_nodes: int = 31
+    min_samples_leaf: int = 30
+    l2_regularization: float = 0.0
     random_state: int = 42
-    n_jobs: int = -1
     estimator: Pipeline | None = None
     target_name: str = "target_log_price"
 
-    def fit(self, rows: list[dict[str, object]], target_name: str = "target_log_price") -> "RandomForestPipeline":
+    def fit(self, rows: list[dict[str, object]], target_name: str = "target_log_price") -> "HistGradientBoostingPipeline":
         if not rows:
             raise ValueError("cannot fit model on empty rows")
 
@@ -26,15 +30,16 @@ class RandomForestPipeline:
         y = [float(row[target_name]) for row in rows]
         self.estimator = Pipeline(
             [
-                ("vectorizer", DictVectorizer(sparse=True)),
+                ("vectorizer", DictVectorizer(sparse=False)),
                 (
-                    "random_forest",
-                    RandomForestRegressor(
-                        n_estimators=self.n_estimators,
-                        max_depth=self.max_depth,
+                    "hist_gradient_boosting",
+                    HistGradientBoostingRegressor(
+                        max_iter=self.max_iter,
+                        learning_rate=self.learning_rate,
+                        max_leaf_nodes=self.max_leaf_nodes,
                         min_samples_leaf=self.min_samples_leaf,
+                        l2_regularization=self.l2_regularization,
                         random_state=self.random_state,
-                        n_jobs=self.n_jobs,
                     ),
                 ),
             ]
@@ -58,5 +63,6 @@ def _without_target(row: dict[str, object], target_name: str) -> dict[str, objec
     return features
 
 
-ElasticNetPipeline = RandomForestPipeline
-RidgePipeline = RandomForestPipeline
+RandomForestPipeline = HistGradientBoostingPipeline
+ElasticNetPipeline = HistGradientBoostingPipeline
+RidgePipeline = HistGradientBoostingPipeline

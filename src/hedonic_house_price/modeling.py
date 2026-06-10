@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from .features import estimate_complex_max_floors, make_feature_row, make_feature_rows
-from .linear_model import RandomForestPipeline
+from .linear_model import HistGradientBoostingPipeline
 from .transactions import Transaction, normalize_property_type
 
 
@@ -48,7 +48,7 @@ class PredictionInput:
 
 @dataclass
 class TrainedModel:
-    pipeline: RandomForestPipeline
+    pipeline: HistGradientBoostingPipeline
     first_month: str
     common_apartments: set[str]
     metrics: dict[str, float]
@@ -60,11 +60,12 @@ class TrainedModel:
 
 def train_hedonic_model(
     transactions: list[Transaction],
-    n_estimators: int = 40,
-    max_depth: int | None = 20,
-    min_samples_leaf: int = 5,
+    max_iter: int = 300,
+    learning_rate: float = 0.06,
+    max_leaf_nodes: int = 31,
+    min_samples_leaf: int = 30,
+    l2_regularization: float = 0.0,
     random_state: int = 42,
-    n_jobs: int = -1,
     min_apartment_count: int = 5,
     validation_months: int = 6,
     progress: Callable[[dict[str, object]], None] | None = None,
@@ -111,22 +112,24 @@ def train_hedonic_model(
     )
     _report(progress, "features_validation", rows=len(validation_rows))
 
-    pipeline = RandomForestPipeline(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
+    pipeline = HistGradientBoostingPipeline(
+        max_iter=max_iter,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
         min_samples_leaf=min_samples_leaf,
+        l2_regularization=l2_regularization,
         random_state=random_state,
-        n_jobs=n_jobs,
     ).fit(train_rows)
     _report(
         progress,
         "fit",
         training_rows=len(train_rows),
-        n_estimators=n_estimators,
-        max_depth=max_depth,
+        max_iter=max_iter,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
         min_samples_leaf=min_samples_leaf,
+        l2_regularization=l2_regularization,
         random_state=random_state,
-        n_jobs=n_jobs,
     )
 
     metrics = evaluate_rows(pipeline, validation_rows or train_rows)
@@ -173,7 +176,7 @@ def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dic
     }
 
 
-def evaluate_rows(pipeline: RandomForestPipeline, rows: list[dict[str, object]]) -> dict[str, float]:
+def evaluate_rows(pipeline: HistGradientBoostingPipeline, rows: list[dict[str, object]]) -> dict[str, float]:
     if not rows:
         raise ValueError("cannot evaluate empty rows")
 
@@ -201,7 +204,7 @@ def evaluate_rows(pipeline: RandomForestPipeline, rows: list[dict[str, object]])
 
 
 def residuals_by_group(
-    pipeline: RandomForestPipeline,
+    pipeline: HistGradientBoostingPipeline,
     rows: list[dict[str, object]],
     group_name: str,
 ) -> dict[str, dict[str, float]]:
