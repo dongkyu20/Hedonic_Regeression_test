@@ -116,6 +116,7 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("mae_krw", model.metrics)
         self.assertIn("mape", model.metrics)
         self.assertIn("floor_13_18", model.residuals_by_floor_band)
+        self.assertIsInstance(model.dropped_features, set)
         self.assertEqual(model.common_apartments, set())
         feature_names = model.pipeline.estimator.named_steps["vectorizer"].feature_names_
         self.assertFalse(any("apartment_name" in name or "building_name" in name for name in feature_names))

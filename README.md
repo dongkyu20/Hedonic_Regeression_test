@@ -224,6 +224,18 @@ PYTHONPATH=src python3 -m hedonic_house_price train \
   --model-output artifacts/hedonic_mysql_seoul_model.pkl
 ```
 
+학습 1회 단위로 전처리 문서, 실제 feature 목록, metrics, 모델 파일, manifest를 함께 보관하려면 `--run-output-dir`을 지정합니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price train \
+  --from-db \
+  --property-types apartment \
+  --model-output artifacts/hedonic_db_preprocessed_model.pkl \
+  --run-output-dir artifacts/training_runs/20260610_ridge_complete_case
+```
+
+run 폴더에는 `run_manifest.json`, `model.pkl`, `preprocessing.md`, `feature_names.csv`, `dropped_features.json`, `metrics.json`, `residuals_by_floor_band.json`이 생성됩니다.
+
 `housing_transactions.city_code`와 `administrative_regions.city_code`는 `seoul` 또는 `busan` 값으로 서울/부산 여부를 명확히 구분합니다. 교통, 생활·교육·자연환경, 도시 경쟁력 값은 각 snapshot 테이블에 월 단위로 적재하면 `model_training_features` 뷰에서 거래 월과 정확히 일치하는 값만 조인됩니다.
 
 ## 검증

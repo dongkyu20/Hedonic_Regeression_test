@@ -27,6 +27,7 @@ from .modeling import PredictionInput, load_model, predict_price, save_model, tr
 from .parks import import_park_environment_snapshots_xls
 from .school_distances import import_school_distance_snapshots_csv
 from .subway_distances import import_subway_distance_snapshots_csvs
+from .training_runs import RunMetadata, write_training_run_artifacts
 from .transactions import normalize_property_type, read_transactions_csv, write_transactions_csv
 
 
@@ -64,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--alpha", type=float, default=1.0)
     train_parser.add_argument("--min-apartment-count", type=int, default=5, help=argparse.SUPPRESS)
     train_parser.add_argument("--validation-months", type=int, default=6)
+    train_parser.add_argument("--run-output-dir", default=None, help="Optional directory for a full training-run manifest and artifacts.")
     train_parser.add_argument("--from-db", action="store_true", help="Train from MySQL model_training_features instead of CSV.")
     train_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None, help="Filter DB training rows by city.")
     train_parser.add_argument(
@@ -366,6 +368,7 @@ def _handle_fetch(args: argparse.Namespace) -> int:
 
 def _handle_train(args: argparse.Namespace) -> int:
     started = time.perf_counter()
+    property_types = None
     if args.from_db:
         _print_train_progress("DB 로드 시작", city_code=args.city_code or "all")
         connection = get_mysql_connection()
@@ -392,15 +395,39 @@ def _handle_train(args: argparse.Namespace) -> int:
     save_model(model, args.model_output)
     _print_train_progress("모델 저장 완료", output=args.model_output, elapsed_s=_elapsed(started))
 
+    run_artifacts = None
+    if args.run_output_dir:
+        _print_train_progress("학습 run 기록 시작", output=args.run_output_dir, elapsed_s=_elapsed(started))
+        run_artifacts = write_training_run_artifacts(
+            model,
+            output_dir=args.run_output_dir,
+            metadata=RunMetadata(
+                data_source="mysql.model_training_features" if args.from_db else args.input,
+                city_code=args.city_code if args.from_db else None,
+                property_types=property_types,
+                complete_case_only=bool(args.from_db),
+                validation_months=args.validation_months,
+                model_type="Ridge",
+                hyperparameters={"alpha": args.alpha},
+            ),
+        )
+        _print_train_progress("학습 run 기록 완료", output=args.run_output_dir, elapsed_s=_elapsed(started))
+
+    payload = {
+        "model_output": args.model_output,
+        "training_rows": model.training_rows,
+        "validation_rows": model.validation_rows,
+        "metrics": model.metrics,
+        "residuals_by_floor_band": model.residuals_by_floor_band,
+    }
+    if run_artifacts is not None:
+        payload["run_output_dir"] = run_artifacts["run_output_dir"]
+        payload["run_manifest"] = run_artifacts["run_manifest"]
+        payload["run_artifacts"] = run_artifacts
+
     print(
         json.dumps(
-            {
-                "model_output": args.model_output,
-                "training_rows": model.training_rows,
-                "validation_rows": model.validation_rows,
-                "metrics": model.metrics,
-                "residuals_by_floor_band": model.residuals_by_floor_band,
-            },
+            payload,
             ensure_ascii=False,
             indent=2,
         )

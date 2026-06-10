@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -55,6 +55,7 @@ class TrainedModel:
     residuals_by_floor_band: dict[str, dict[str, float]]
     training_rows: int
     validation_rows: int
+    dropped_features: set[str] = field(default_factory=set)
 
 def train_hedonic_model(
     transactions: list[Transaction],
@@ -120,6 +121,7 @@ def train_hedonic_model(
         residuals_by_floor_band=residuals_by_floor_band,
         training_rows=len(train_rows),
         validation_rows=len(validation_rows),
+        dropped_features=dropped_feature_names,
     )
     _report(progress, "complete", training_rows=model.training_rows, validation_rows=model.validation_rows)
     return model

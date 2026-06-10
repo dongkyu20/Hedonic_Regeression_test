@@ -121,6 +121,17 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.model_output, "artifacts/model.json")
         self.assertEqual(args.alpha, 0.25)
 
+    def test_train_command_parses_run_output_dir(self):
+        args = build_parser().parse_args(
+            [
+                "train",
+                "--run-output-dir",
+                "artifacts/training_runs/test_run",
+            ]
+        )
+
+        self.assertEqual(args.run_output_dir, "artifacts/training_runs/test_run")
+
     def test_train_command_defaults_to_pickle_model_artifact(self):
         args = build_parser().parse_args(["train"])
 
@@ -461,6 +472,50 @@ class CliTests(unittest.TestCase):
             self.assertIn("[train] sklearn Ridge 학습", progress_text)
             self.assertIn("[train] 모델 저장 완료", progress_text)
             self.assertIn('"model_output"', stdout.getvalue())
+        finally:
+            os.unlink(input_path)
+            os.unlink(model_path)
+
+    def test_train_command_writes_run_manifest_artifacts(self):
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as csv_file:
+            input_path = csv_file.name
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as model_file:
+            model_path = model_file.name
+
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        try:
+            write_transactions_csv(sample_transactions(), input_path)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                run_dir = Path(tmpdir) / "run"
+                with redirect_stderr(stderr), redirect_stdout(stdout):
+                    exit_code = main(
+                        [
+                            "train",
+                            "--input",
+                            input_path,
+                            "--model-output",
+                            model_path,
+                            "--run-output-dir",
+                            str(run_dir),
+                            "--alpha",
+                            "0.1",
+                            "--min-apartment-count",
+                            "2",
+                            "--validation-months",
+                            "2",
+                        ]
+                    )
+
+                self.assertEqual(exit_code, 0)
+                self.assertTrue((run_dir / "run_manifest.json").exists())
+                self.assertTrue((run_dir / "model.pkl").exists())
+                self.assertTrue((run_dir / "feature_names.csv").exists())
+                payload = json.loads(stdout.getvalue())
+                self.assertIn("mape", payload["metrics"])
+                self.assertEqual(payload["run_output_dir"], str(run_dir))
+                self.assertEqual(payload["run_manifest"], str(run_dir / "run_manifest.json"))
+                self.assertEqual(payload["run_artifacts"]["metrics"], str(run_dir / "metrics.json"))
         finally:
             os.unlink(input_path)
             os.unlink(model_path)
