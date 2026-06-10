@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .access_times import import_average_access_time_snapshots_xlsx
+from .academies import import_academy_count_snapshots_csv
 from .bus_stops import import_bus_stop_distance_snapshots_csv
 from .client import fetch_transactions
 from .complex_info import import_complex_basic_info_csv, import_complex_property_conditions_csv
@@ -184,6 +185,20 @@ def build_parser() -> argparse.ArgumentParser:
     db_park_parser.add_argument("--source-name", default="park_standard_data")
     db_park_parser.add_argument("--radius-m", type=int, default=1000)
 
+    db_academy_parser = subparsers.add_parser(
+        "db-import-academy-counts",
+        help="Fill academy radius-count fields from nearby-apartment academy data with city CSV fallback.",
+    )
+    db_academy_parser.add_argument("--primary-input", required=True)
+    db_academy_parser.add_argument("--seoul-input", required=True)
+    db_academy_parser.add_argument("--busan-input", required=True)
+    db_academy_parser.add_argument("--source-name", default="academy_nearby_complex_2604")
+    db_academy_parser.add_argument("--radius-m", type=int, default=500)
+    db_academy_parser.add_argument("--provider", choices=["kakao"], default="kakao")
+    db_academy_parser.add_argument("--api-key", default=None, help="Provider API key. Defaults to KAKAO_REST_API_KEY.")
+    db_academy_parser.add_argument("--sleep-seconds", type=float, default=0.05)
+    db_academy_parser.add_argument("--geocode-cache", default="artifacts/academy_geocode_cache.csv")
+
     db_feature_coverage_parser = subparsers.add_parser(
         "db-feature-coverage",
         help="Write feature coverage CSV and Markdown reports from model_training_features.",
@@ -228,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_access_times(args)
     if args.command == "db-import-parks":
         return _handle_db_import_parks(args)
+    if args.command == "db-import-academy-counts":
+        return _handle_db_import_academy_counts(args)
     if args.command == "db-feature-coverage":
         return _handle_db_feature_coverage(args)
     if args.command == "db-clear-data":
@@ -539,6 +556,27 @@ def _handle_db_import_parks(args: argparse.Namespace) -> int:
         args.input,
         source_name=args.source_name,
         radius_m=args.radius_m,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_academy_counts(args: argparse.Namespace) -> int:
+    if args.provider != "kakao":
+        raise ValueError(f"unsupported geocoding provider: {args.provider}")
+    api_key = args.api_key or get_kakao_rest_api_key()
+    geocoder = KakaoGeocoder(api_key)
+    connection = get_mysql_connection()
+    result = import_academy_count_snapshots_csv(
+        connection,
+        args.primary_input,
+        seoul_csv_path=args.seoul_input,
+        busan_csv_path=args.busan_input,
+        geocoder=geocoder,
+        source_name=args.source_name,
+        radius_m=args.radius_m,
+        sleep_seconds=args.sleep_seconds,
+        geocode_cache_path=args.geocode_cache,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

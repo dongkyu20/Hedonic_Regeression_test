@@ -296,6 +296,31 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.source_name, "park_standard_data")
         self.assertEqual(args.radius_m, 750)
 
+    def test_db_import_academy_counts_command_parses_inputs(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-academy-counts",
+                "--primary-input",
+                "data/academy_by_complex.csv",
+                "--seoul-input",
+                "data/seoul_academies.csv",
+                "--busan-input",
+                "data/busan_academies.csv",
+                "--radius-m",
+                "500",
+                "--sleep-seconds",
+                "0",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-academy-counts")
+        self.assertEqual(args.primary_input, "data/academy_by_complex.csv")
+        self.assertEqual(args.seoul_input, "data/seoul_academies.csv")
+        self.assertEqual(args.busan_input, "data/busan_academies.csv")
+        self.assertEqual(args.source_name, "academy_nearby_complex_2604")
+        self.assertEqual(args.radius_m, 500)
+        self.assertEqual(args.sleep_seconds, 0)
+
     def test_db_import_access_times_command_parses_input(self):
         args = build_parser().parse_args(
             [
@@ -696,6 +721,43 @@ class CliTests(unittest.TestCase):
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "park_standard_data")
         self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_academy_counts_uses_kakao_geocoder_and_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.KakaoGeocoder") as geocoder_cls,
+            patch("hedonic_house_price.cli.get_kakao_rest_api_key", return_value="kakao-key"),
+            patch(
+                "hedonic_house_price.cli.import_academy_count_snapshots_csv",
+                return_value={"snapshot_rows": 20, "fallback_matched_complexes": 2},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-academy-counts",
+                    "--primary-input",
+                    "data/academy_by_complex.csv",
+                    "--seoul-input",
+                    "data/seoul_academies.csv",
+                    "--busan-input",
+                    "data/busan_academies.csv",
+                    "--radius-m",
+                    "500",
+                    "--sleep-seconds",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        geocoder_cls.assert_called_once_with("kakao-key")
+        self.assertEqual(import_mock.call_args.args[1], "data/academy_by_complex.csv")
+        self.assertEqual(import_mock.call_args.kwargs["seoul_csv_path"], "data/seoul_academies.csv")
+        self.assertEqual(import_mock.call_args.kwargs["busan_csv_path"], "data/busan_academies.csv")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 500)
+        self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
+        self.assertIn('"fallback_matched_complexes": 2', stdout.getvalue())
 
     def test_db_import_access_times_uses_import_helper(self):
         stdout = io.StringIO()

@@ -215,7 +215,7 @@ SELECT
   COALESCE(les_school_complex.nearest_elementary_school_distance_m, les_school_region.nearest_elementary_school_distance_m) AS nearest_elementary_school_distance_m,
   COALESCE(les_school_complex.nearest_middle_school_distance_m, les_school_region.nearest_middle_school_distance_m) AS nearest_middle_school_distance_m,
   COALESCE(les_school_complex.school_count_radius, les_school_region.school_count_radius) AS school_count_radius,
-  COALESCE(les_school_complex.academy_count_radius, les_school_region.academy_count_radius) AS academy_count_radius,
+  COALESCE(les_academy_complex.academy_count_radius, les_academy_region.academy_count_radius) AS academy_count_radius,
   COALESCE(les_school_complex.nearest_hospital_distance_m, les_school_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
   COALESCE(les_school_complex.nearest_pharmacy_distance_m, les_school_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
   COALESCE(les_park_complex.nearest_park_distance_m, les_park_region.nearest_park_distance_m) AS nearest_park_distance_m,
@@ -253,6 +253,15 @@ LEFT JOIN living_environment_snapshots les_school_region
  AND les_school_region.complex_id IS NULL
  AND les_school_region.snapshot_yyyymm = t.deal_yyyymm
  AND les_school_region.source_name = 'school_location'
+LEFT JOIN living_environment_snapshots les_academy_complex
+  ON les_academy_complex.complex_id = t.complex_id
+ AND les_academy_complex.snapshot_yyyymm = t.deal_yyyymm
+ AND les_academy_complex.source_name = 'academy_nearby_complex_2604'
+LEFT JOIN living_environment_snapshots les_academy_region
+  ON les_academy_region.region_id = t.region_id
+ AND les_academy_region.complex_id IS NULL
+ AND les_academy_region.snapshot_yyyymm = t.deal_yyyymm
+ AND les_academy_region.source_name = 'academy_nearby_complex_2604'
 LEFT JOIN living_environment_snapshots les_park_complex
   ON les_park_complex.complex_id = t.complex_id
  AND les_park_complex.snapshot_yyyymm = t.deal_yyyymm
