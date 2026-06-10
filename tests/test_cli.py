@@ -321,6 +321,32 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.radius_m, 500)
         self.assertEqual(args.sleep_seconds, 0)
 
+    def test_db_import_healthcare_distances_command_parses_inputs(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-healthcare-distances",
+                "--seoul-hospital-input",
+                "data/seoul_hospital.csv",
+                "--seoul-hospital-input",
+                "data/seoul_clinic.csv",
+                "--busan-hospital-input",
+                "data/busan_hospital.csv",
+                "--busan-hospital-input",
+                "data/busan_clinic.csv",
+                "--seoul-pharmacy-input",
+                "data/seoul_pharmacy.csv",
+                "--busan-pharmacy-input",
+                "data/busan_pharmacy.csv",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-healthcare-distances")
+        self.assertEqual(args.seoul_hospital_input, ["data/seoul_hospital.csv", "data/seoul_clinic.csv"])
+        self.assertEqual(args.busan_hospital_input, ["data/busan_hospital.csv", "data/busan_clinic.csv"])
+        self.assertEqual(args.seoul_pharmacy_input, ["data/seoul_pharmacy.csv"])
+        self.assertEqual(args.busan_pharmacy_input, ["data/busan_pharmacy.csv"])
+        self.assertEqual(args.source_name, "healthcare_facility")
+
     def test_db_import_access_times_command_parses_input(self):
         args = build_parser().parse_args(
             [
@@ -758,6 +784,37 @@ class CliTests(unittest.TestCase):
         self.assertEqual(import_mock.call_args.kwargs["radius_m"], 500)
         self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
         self.assertIn('"fallback_matched_complexes": 2', stdout.getvalue())
+
+    def test_db_import_healthcare_distances_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_healthcare_distance_snapshots_csvs",
+                return_value={"snapshot_rows": 20, "hospital_rows": 8, "pharmacy_rows": 3},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-healthcare-distances",
+                    "--seoul-hospital-input",
+                    "data/seoul_hospital.csv",
+                    "--busan-hospital-input",
+                    "data/busan_hospital.csv",
+                    "--seoul-pharmacy-input",
+                    "data/seoul_pharmacy.csv",
+                    "--busan-pharmacy-input",
+                    "data/busan_pharmacy.csv",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.kwargs["seoul_hospital_paths"], ["data/seoul_hospital.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["busan_hospital_paths"], ["data/busan_hospital.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["seoul_pharmacy_paths"], ["data/seoul_pharmacy.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["busan_pharmacy_paths"], ["data/busan_pharmacy.csv"])
+        self.assertIn('"hospital_rows": 8', stdout.getvalue())
 
     def test_db_import_access_times_uses_import_helper(self):
         stdout = io.StringIO()

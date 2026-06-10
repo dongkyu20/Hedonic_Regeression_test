@@ -15,6 +15,7 @@ dependencies = [
 mysql = [
     "mysql-connector-python>=9.0,<10",
     "xlrd>=2,<3",
+    "pyproj>=3.6,<4",
 ]
 
 [project.scripts]

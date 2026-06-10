@@ -216,8 +216,8 @@ SELECT
   COALESCE(les_school_complex.nearest_middle_school_distance_m, les_school_region.nearest_middle_school_distance_m) AS nearest_middle_school_distance_m,
   COALESCE(les_school_complex.school_count_radius, les_school_region.school_count_radius) AS school_count_radius,
   COALESCE(les_academy_complex.academy_count_radius, les_academy_region.academy_count_radius) AS academy_count_radius,
-  COALESCE(les_school_complex.nearest_hospital_distance_m, les_school_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
-  COALESCE(les_school_complex.nearest_pharmacy_distance_m, les_school_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
+  COALESCE(les_healthcare_complex.nearest_hospital_distance_m, les_healthcare_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
+  COALESCE(les_healthcare_complex.nearest_pharmacy_distance_m, les_healthcare_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
   COALESCE(les_park_complex.nearest_park_distance_m, les_park_region.nearest_park_distance_m) AS nearest_park_distance_m,
   COALESCE(les_park_complex.park_area_total_m2_radius, les_park_region.park_area_total_m2_radius) AS park_area_total_m2_radius,
   ucs.population_count,
@@ -262,6 +262,15 @@ LEFT JOIN living_environment_snapshots les_academy_region
  AND les_academy_region.complex_id IS NULL
  AND les_academy_region.snapshot_yyyymm = t.deal_yyyymm
  AND les_academy_region.source_name = 'academy_nearby_complex_2604'
+LEFT JOIN living_environment_snapshots les_healthcare_complex
+  ON les_healthcare_complex.complex_id = t.complex_id
+ AND les_healthcare_complex.snapshot_yyyymm = t.deal_yyyymm
+ AND les_healthcare_complex.source_name = 'healthcare_facility'
+LEFT JOIN living_environment_snapshots les_healthcare_region
+  ON les_healthcare_region.region_id = t.region_id
+ AND les_healthcare_region.complex_id IS NULL
+ AND les_healthcare_region.snapshot_yyyymm = t.deal_yyyymm
+ AND les_healthcare_region.source_name = 'healthcare_facility'
 LEFT JOIN living_environment_snapshots les_park_complex
   ON les_park_complex.complex_id = t.complex_id
  AND les_park_complex.snapshot_yyyymm = t.deal_yyyymm

@@ -20,6 +20,7 @@ from .feature_coverage import generate_feature_coverage_report
 from .dates import recent_months
 from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
 from .gui import run_gui_server
+from .healthcare import import_healthcare_distance_snapshots_csvs
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
 from .parks import import_park_environment_snapshots_xls
@@ -199,6 +200,36 @@ def build_parser() -> argparse.ArgumentParser:
     db_academy_parser.add_argument("--sleep-seconds", type=float, default=0.05)
     db_academy_parser.add_argument("--geocode-cache", default="artifacts/academy_geocode_cache.csv")
 
+    db_healthcare_parser = subparsers.add_parser(
+        "db-import-healthcare-distances",
+        help="Fill nearest hospital and pharmacy distance fields from healthcare facility CSVs.",
+    )
+    db_healthcare_parser.add_argument(
+        "--seoul-hospital-input",
+        required=True,
+        action="append",
+        help="Seoul hospital/clinic CSV path. Repeat for hospital and clinic files.",
+    )
+    db_healthcare_parser.add_argument(
+        "--busan-hospital-input",
+        required=True,
+        action="append",
+        help="Busan hospital/clinic CSV path. Repeat for hospital and clinic files.",
+    )
+    db_healthcare_parser.add_argument(
+        "--seoul-pharmacy-input",
+        required=True,
+        action="append",
+        help="Seoul pharmacy CSV path.",
+    )
+    db_healthcare_parser.add_argument(
+        "--busan-pharmacy-input",
+        required=True,
+        action="append",
+        help="Busan pharmacy CSV path.",
+    )
+    db_healthcare_parser.add_argument("--source-name", default="healthcare_facility")
+
     db_feature_coverage_parser = subparsers.add_parser(
         "db-feature-coverage",
         help="Write feature coverage CSV and Markdown reports from model_training_features.",
@@ -245,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_parks(args)
     if args.command == "db-import-academy-counts":
         return _handle_db_import_academy_counts(args)
+    if args.command == "db-import-healthcare-distances":
+        return _handle_db_import_healthcare_distances(args)
     if args.command == "db-feature-coverage":
         return _handle_db_feature_coverage(args)
     if args.command == "db-clear-data":
@@ -577,6 +610,20 @@ def _handle_db_import_academy_counts(args: argparse.Namespace) -> int:
         radius_m=args.radius_m,
         sleep_seconds=args.sleep_seconds,
         geocode_cache_path=args.geocode_cache,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_healthcare_distances(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_healthcare_distance_snapshots_csvs(
+        connection,
+        seoul_hospital_paths=args.seoul_hospital_input,
+        busan_hospital_paths=args.busan_hospital_input,
+        seoul_pharmacy_paths=args.seoul_pharmacy_input,
+        busan_pharmacy_paths=args.busan_pharmacy_input,
+        source_name=args.source_name,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
