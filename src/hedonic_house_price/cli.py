@@ -63,6 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--input", default="data/seoul_apartment_trades.csv")
     train_parser.add_argument("--model-output", default="artifacts/hedonic_model.pkl")
     train_parser.add_argument("--alpha", type=float, default=1.0)
+    train_parser.add_argument("--l1-ratio", type=float, default=0.5)
+    train_parser.add_argument("--max-iter", type=int, default=5000)
     train_parser.add_argument("--min-apartment-count", type=int, default=5, help=argparse.SUPPRESS)
     train_parser.add_argument("--validation-months", type=int, default=6)
     train_parser.add_argument("--run-output-dir", default=None, help="Optional directory for a full training-run manifest and artifacts.")
@@ -387,6 +389,8 @@ def _handle_train(args: argparse.Namespace) -> int:
     model = train_hedonic_model(
         transactions,
         alpha=args.alpha,
+        l1_ratio=args.l1_ratio,
+        max_iter=args.max_iter,
         min_apartment_count=args.min_apartment_count,
         validation_months=args.validation_months,
         progress=lambda event: _print_model_progress(event, started),
@@ -407,8 +411,8 @@ def _handle_train(args: argparse.Namespace) -> int:
                 property_types=property_types,
                 complete_case_only=bool(args.from_db),
                 validation_months=args.validation_months,
-                model_type="Ridge",
-                hyperparameters={"alpha": args.alpha},
+                model_type="ElasticNet",
+                hyperparameters={"alpha": args.alpha, "l1_ratio": args.l1_ratio, "max_iter": args.max_iter},
             ),
         )
         _print_train_progress("학습 run 기록 완료", output=args.run_output_dir, elapsed_s=_elapsed(started))
@@ -454,7 +458,14 @@ def _print_model_progress(event: dict[str, object], started: float) -> None:
     elif stage == "features_validation":
         _print_train_progress("특성 생성", dataset="validation", rows=event["rows"], elapsed_s=_elapsed(started))
     elif stage == "fit":
-        _print_train_progress("sklearn Ridge 학습", training_rows=event["training_rows"], alpha=event["alpha"], elapsed_s=_elapsed(started))
+        _print_train_progress(
+            "sklearn ElasticNet 학습",
+            training_rows=event["training_rows"],
+            alpha=event["alpha"],
+            l1_ratio=event["l1_ratio"],
+            max_iter=event["max_iter"],
+            elapsed_s=_elapsed(started),
+        )
     elif stage == "evaluate":
         _print_train_progress("평가 완료", rows=event["rows"], mape=f"{float(event['mape']):.4f}", r2_log=f"{float(event['r2_log']):.4f}", elapsed_s=_elapsed(started))
     elif stage == "residuals":

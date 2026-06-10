@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from .features import make_feature_row, make_feature_rows
-from .linear_model import RidgePipeline
+from .linear_model import ElasticNetPipeline
 from .transactions import Transaction, normalize_property_type
 
 
@@ -48,7 +48,7 @@ class PredictionInput:
 
 @dataclass
 class TrainedModel:
-    pipeline: RidgePipeline
+    pipeline: ElasticNetPipeline
     first_month: str
     common_apartments: set[str]
     metrics: dict[str, float]
@@ -60,6 +60,8 @@ class TrainedModel:
 def train_hedonic_model(
     transactions: list[Transaction],
     alpha: float = 1.0,
+    l1_ratio: float = 0.5,
+    max_iter: int = 5000,
     min_apartment_count: int = 5,
     validation_months: int = 6,
     progress: Callable[[dict[str, object]], None] | None = None,
@@ -103,8 +105,8 @@ def train_hedonic_model(
     )
     _report(progress, "features_validation", rows=len(validation_rows))
 
-    pipeline = RidgePipeline(alpha=alpha).fit(train_rows)
-    _report(progress, "fit", training_rows=len(train_rows), alpha=alpha)
+    pipeline = ElasticNetPipeline(alpha=alpha, l1_ratio=l1_ratio, max_iter=max_iter).fit(train_rows)
+    _report(progress, "fit", training_rows=len(train_rows), alpha=alpha, l1_ratio=l1_ratio, max_iter=max_iter)
 
     metrics = evaluate_rows(pipeline, validation_rows or train_rows)
     _report(progress, "evaluate", rows=len(validation_rows or train_rows), mape=metrics["mape"], r2_log=metrics["r2_log"])
@@ -141,7 +143,7 @@ def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dic
     }
 
 
-def evaluate_rows(pipeline: RidgePipeline, rows: list[dict[str, object]]) -> dict[str, float]:
+def evaluate_rows(pipeline: ElasticNetPipeline, rows: list[dict[str, object]]) -> dict[str, float]:
     if not rows:
         raise ValueError("cannot evaluate empty rows")
 
@@ -169,7 +171,7 @@ def evaluate_rows(pipeline: RidgePipeline, rows: list[dict[str, object]]) -> dic
 
 
 def residuals_by_group(
-    pipeline: RidgePipeline,
+    pipeline: ElasticNetPipeline,
     rows: list[dict[str, object]],
     group_name: str,
 ) -> dict[str, dict[str, float]]:

@@ -32,7 +32,7 @@ def sample_transactions():
 
 class TrainingRunsTests(unittest.TestCase):
     def test_write_training_run_artifacts_records_manifest_model_and_features(self):
-        model = train_hedonic_model(sample_transactions(), alpha=0.1, validation_months=2)
+        model = train_hedonic_model(sample_transactions(), alpha=0.1, l1_ratio=0.6, validation_months=2)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             preprocessing_doc = Path(tmpdir) / "preprocessing.md"
@@ -46,8 +46,8 @@ class TrainingRunsTests(unittest.TestCase):
                     property_types=["apartment"],
                     complete_case_only=True,
                     validation_months=2,
-                    model_type="Ridge",
-                    hyperparameters={"alpha": 0.1},
+                    model_type="ElasticNet",
+                    hyperparameters={"alpha": 0.1, "l1_ratio": 0.6, "max_iter": 5000},
                 ),
                 preprocessing_doc_path=preprocessing_doc,
                 git_commit="abc123",
@@ -65,7 +65,9 @@ class TrainingRunsTests(unittest.TestCase):
             self.assertEqual(manifest["data_source"], "mysql.model_training_features")
             self.assertEqual(manifest["property_types"], ["apartment"])
             self.assertTrue(manifest["complete_case_only"])
+            self.assertEqual(manifest["model_type"], "ElasticNet")
             self.assertEqual(manifest["hyperparameters"]["alpha"], 0.1)
+            self.assertEqual(manifest["hyperparameters"]["l1_ratio"], 0.6)
             self.assertEqual(manifest["artifact_paths"]["model"], "model.pkl")
             self.assertIn("mape", metrics)
             self.assertIsInstance(dropped["dropped_features"], list)

@@ -113,6 +113,10 @@ class CliTests(unittest.TestCase):
                 "artifacts/model.json",
                 "--alpha",
                 "0.25",
+                "--l1-ratio",
+                "0.7",
+                "--max-iter",
+                "1234",
             ]
         )
 
@@ -120,6 +124,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.input, "data/input.csv")
         self.assertEqual(args.model_output, "artifacts/model.json")
         self.assertEqual(args.alpha, 0.25)
+        self.assertEqual(args.l1_ratio, 0.7)
+        self.assertEqual(args.max_iter, 1234)
 
     def test_train_command_parses_run_output_dir(self):
         args = build_parser().parse_args(
@@ -469,7 +475,7 @@ class CliTests(unittest.TestCase):
             progress_text = stderr.getvalue()
             self.assertIn("[train] CSV 로드 시작", progress_text)
             self.assertIn("[train] 특성 생성", progress_text)
-            self.assertIn("[train] sklearn Ridge 학습", progress_text)
+            self.assertIn("[train] sklearn ElasticNet 학습", progress_text)
             self.assertIn("[train] 모델 저장 완료", progress_text)
             self.assertIn('"model_output"', stdout.getvalue())
         finally:

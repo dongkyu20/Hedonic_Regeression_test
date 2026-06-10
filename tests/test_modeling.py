@@ -119,6 +119,7 @@ class ModelingTests(unittest.TestCase):
         self.assertIsInstance(model.dropped_features, set)
         self.assertEqual(model.common_apartments, set())
         feature_names = model.pipeline.estimator.named_steps["vectorizer"].feature_names_
+        self.assertIn("elastic_net", model.pipeline.estimator.named_steps)
         self.assertFalse(any("apartment_name" in name or "building_name" in name for name in feature_names))
         self.assertTrue(any("property_type=apartment" == name for name in feature_names))
         self.assertTrue(any("property_type=officetel" == name for name in feature_names))
@@ -228,7 +229,7 @@ class ModelingTests(unittest.TestCase):
             with open(path, "rb") as handle:
                 self.assertEqual(handle.read(1), b"\x80")
             restored = load_model(path)
-            self.assertIn("ridge", restored.pipeline.estimator.named_steps)
+            self.assertIn("elastic_net", restored.pipeline.estimator.named_steps)
 
             original = predict_price(
                 model,
