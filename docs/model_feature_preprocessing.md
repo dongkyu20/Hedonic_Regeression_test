@@ -89,6 +89,8 @@
 
 ## 결측 처리 규칙
 
+DB 학습에서는 `model_training_features`에서 현재 학습 reader가 선택하는 보강 변수 중 하나라도 `NULL`인 거래 row를 조회 단계에서 제외합니다. 즉 `train --from-db`는 complete-case 데이터만 사용합니다.
+
 로그 변환 숫자 변수는 결측값을 다음처럼 처리합니다.
 
 | 상태 | 변환값 | 결측 플래그 |
@@ -97,6 +99,8 @@
 | 결측 또는 음수 | `0.0` | `1` |
 
 개수 구간 변수는 결측이면 `missing` 범주가 됩니다.
+
+위 결측 플래그와 `missing` 범주는 전처리 함수의 안전장치입니다. DB 학습 기본 경로에서는 complete-case 필터가 먼저 적용되므로, 실제 학습에는 결측 보강값이 있는 거래가 들어가지 않습니다.
 
 ## 상수 변수 제거
 
@@ -115,4 +119,3 @@
 | 거리 구간 | `distance_0_250`, `distance_250_500`, `distance_500_1000`, `distance_1000_2000`, `distance_2000_plus`, `missing` |
 | 접근시간 구간 | `minutes_0_15`, `minutes_15_30`, `minutes_30_45`, `minutes_45_60`, `minutes_60_plus`, `missing` |
 | `park_area_total_m2_radius_bin` | `park_area_0`, `park_area_1_10000`, `park_area_10000_50000`, `park_area_50000_plus`, `missing` |
-

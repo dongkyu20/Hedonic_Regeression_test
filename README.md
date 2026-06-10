@@ -171,6 +171,8 @@ PYTHONPATH=src python3 -m hedonic_house_price gui --model artifacts/hedonic_mode
 
 MySQL `model_training_features`로 학습할 때는 보강된 snapshot feature도 함께 사용합니다. 세대수와 총주차대수, 모든 거리/접근시간, 공원 면적 합계는 `log1p`로 변환하고, 지하철·버스·학교·학원·최근 거래량 같은 개수 변수는 구간화합니다. 동수 원본은 직접 쓰지 않고 `households_per_building`을 계산하며, 공원 면적은 `park_exists` 더미와 `log1p(park_area_total_m2_radius)`를 함께 사용합니다.
 
+DB 학습은 현재 학습에 쓰는 보강 변수 중 하나라도 `NULL`인 거래를 제외하고, complete-case row만 사용합니다.
+
 `train` 명령은 CSV 로드, 학습/검증 분할, 특성 생성, sklearn Ridge 학습, 평가, 층 구간 잔차 계산, 모델 저장 단계를 `stderr`에 즉시 출력합니다. 최종 JSON 결과는 기존처럼 `stdout`에 출력됩니다.
 
 ## MySQL 데이터베이스 사용

@@ -88,6 +88,7 @@ def read_transactions_from_training_view(
     *,
     city_code: str | None = None,
     property_types: list[str] | None = None,
+    require_complete_factors: bool = True,
 ) -> list[Transaction]:
     where_parts: list[str] = []
     params: list[object] = []
@@ -98,6 +99,8 @@ def read_transactions_from_training_view(
         placeholders = ", ".join(["%s"] * len(property_types))
         where_parts.append(f"property_type IN ({placeholders})")
         params.extend(property_types)
+    if require_complete_factors:
+        where_parts.extend(f"{column} IS NOT NULL" for column in FACTOR_TRAINING_VIEW_COLUMNS)
 
     where_sql = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
     query = f"""

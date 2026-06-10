@@ -61,6 +61,33 @@ class DbTrainingTests(unittest.TestCase):
         self.assertIn("academy_count_radius", query)
         self.assertIn("park_area_total_m2_radius", query)
 
+    def test_read_transactions_from_training_view_excludes_incomplete_factor_rows_by_default(self):
+        connection = FakeConnection([])
+
+        read_transactions_from_training_view(connection, city_code="seoul", property_types=["apartment"])
+
+        query = connection.cursor_obj.statements[0]
+        self.assertIn("household_count IS NOT NULL", query)
+        self.assertIn("nearest_subway_distance_m IS NOT NULL", query)
+        self.assertIn("nearest_middle_school_distance_m IS NOT NULL", query)
+        self.assertIn("nearest_hospital_distance_m IS NOT NULL", query)
+        self.assertIn("park_area_total_m2_radius IS NOT NULL", query)
+        self.assertIn("recent_transaction_count IS NOT NULL", query)
+
+    def test_read_transactions_from_training_view_can_include_incomplete_factor_rows_for_diagnostics(self):
+        connection = FakeConnection([])
+
+        read_transactions_from_training_view(
+            connection,
+            city_code="seoul",
+            property_types=["apartment"],
+            require_complete_factors=False,
+        )
+
+        query = connection.cursor_obj.statements[0]
+        self.assertNotIn("household_count IS NOT NULL", query)
+        self.assertNotIn("nearest_subway_distance_m IS NOT NULL", query)
+
 
 class FakeCursor:
     def __init__(self, rows):
