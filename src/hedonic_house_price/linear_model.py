@@ -9,8 +9,8 @@ from sklearn.pipeline import Pipeline
 
 @dataclass
 class RandomForestPipeline:
-    n_estimators: int = 120
-    max_depth: int | None = 24
+    n_estimators: int = 40
+    max_depth: int | None = 20
     min_samples_leaf: int = 5
     random_state: int = 42
     n_jobs: int = -1

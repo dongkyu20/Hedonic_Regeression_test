@@ -148,6 +148,10 @@ class CliTests(unittest.TestCase):
         args = build_parser().parse_args(["train"])
 
         self.assertEqual(args.model_output, "artifacts/hedonic_model.pkl")
+        self.assertEqual(args.n_estimators, 40)
+        self.assertEqual(args.max_depth, 20)
+        self.assertEqual(args.min_samples_leaf, 5)
+        self.assertEqual(args.random_state, 42)
 
     def test_gui_command_parses_local_server_options(self):
         args = build_parser().parse_args(["gui", "--model", "artifacts/model.pkl", "--port", "8123"])

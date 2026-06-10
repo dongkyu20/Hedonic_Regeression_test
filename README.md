@@ -93,7 +93,7 @@ PYTHONPATH=src python3 -m hedonic_house_price train --input data/seoul_housing_t
 [train] CSV 로드 시작 input=data/seoul_apartment_trades.csv
 [train] CSV 로드 완료 rows=143940 elapsed_s=0.4
 [train] 학습/검증 분할 완료 training_rows=108748 validation_rows=35192 first_month=202407 elapsed_s=0.6
-[train] sklearn RandomForest 학습 training_rows=108748 n_estimators=120 max_depth=24 min_samples_leaf=5 random_state=42 n_jobs=-1 elapsed_s=9.8
+[train] sklearn RandomForest 학습 training_rows=108748 n_estimators=40 max_depth=20 min_samples_leaf=5 random_state=42 n_jobs=-1 elapsed_s=9.8
 [train] 평가 완료 rows=35192 mape=0.2347 r2_log=0.7984 elapsed_s=12.1
 [train] 모델 저장 완료 output=artifacts/hedonic_model.pkl elapsed_s=12.3
 ```
@@ -165,7 +165,7 @@ PYTHONPATH=src python3 -m hedonic_house_price gui --model artifacts/hedonic_mode
 
 종속변수는 `log(거래가격)`입니다. 기본 설명변수는 `log1p(전용면적)`, 거래월 추세, 자치구, 법정동, 계약월, 층 구간, 연식 구간, 주택유형(`property_type`)입니다. 연립·다세대 데이터에 대지권면적이 있으면 `log1p(land_area_m2)`, `has_land_area`도 사용하고, `house_type`이 있으면 범주형 특성으로 사용합니다. 건물명은 CSV에는 저장하지만 학습 요인에서는 제외합니다.
 
-학습은 scikit-learn `Pipeline`으로 구성됩니다. `DictVectorizer`가 범주형 변수를 원핫 인코딩하고, `RandomForestRegressor`가 로그 거래가격을 학습합니다. 기본값은 `n_estimators=120`, `max_depth=24`, `min_samples_leaf=5`, `random_state=42`, `n_jobs=-1`입니다. 트리 기반 모델이므로 선형모델용 스케일링 단계는 사용하지 않습니다. 모델 아티팩트는 sklearn 객체를 포함하므로 pickle 파일(`.pkl`)로 저장됩니다.
+학습은 scikit-learn `Pipeline`으로 구성됩니다. `DictVectorizer`가 범주형 변수를 원핫 인코딩하고, `RandomForestRegressor`가 로그 거래가격을 학습합니다. 기본값은 `n_estimators=40`, `max_depth=20`, `min_samples_leaf=5`, `random_state=42`, `n_jobs=-1`입니다. 트리 기반 모델이므로 선형모델용 스케일링 단계는 사용하지 않습니다. 모델 아티팩트는 sklearn 객체를 포함하므로 pickle 파일(`.pkl`)로 저장됩니다.
 
 층은 단순히 높을수록 비싸다고 가정하지 않습니다. 원시 층수 대신 `floor_band`와 `low_floor`를 사용해 저층 할인, 중층/중고층 선호, 초고층의 다른 가격 패턴을 범주형 효과로 학습합니다. 연식도 `deal_year - build_year`를 학습 시점에 계산한 뒤 `age_band`로 구간화합니다.
 
@@ -231,8 +231,8 @@ PYTHONPATH=src python3 -m hedonic_house_price train \
   --from-db \
   --property-types apartment \
   --model-output artifacts/hedonic_db_random_forest_model.pkl \
-  --n-estimators 120 \
-  --max-depth 24 \
+  --n-estimators 40 \
+  --max-depth 20 \
   --min-samples-leaf 5 \
   --random-state 42 \
   --n-jobs -1 \

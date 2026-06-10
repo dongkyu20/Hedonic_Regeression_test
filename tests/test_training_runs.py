@@ -55,7 +55,7 @@ class TrainingRunsTests(unittest.TestCase):
                     model_type="RandomForest",
                     hyperparameters={
                         "n_estimators": 10,
-                        "max_depth": 24,
+                        "max_depth": 20,
                         "min_samples_leaf": 5,
                         "random_state": 42,
                         "n_jobs": 1,
