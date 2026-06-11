@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from hedonic_house_price.cli import build_parser, main
 from hedonic_house_price.gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH
+from hedonic_house_price.historical_floors import HistoricalFloorStat
 from hedonic_house_price.transactions import Transaction, write_transactions_csv
 
 
@@ -103,6 +104,95 @@ class CliTests(unittest.TestCase):
         self.assertEqual(call_kwargs["district_codes"]["서울특별시 강남구"], "11680")
         self.assertEqual(call_kwargs["district_codes"]["부산광역시 해운대구"], "26350")
         self.assertIn('"city_codes"', stdout.getvalue())
+
+    def test_fetch_historical_floor_stats_command_parses_options(self):
+        args = build_parser().parse_args(
+            [
+                "fetch-historical-floor-stats",
+                "--city-codes",
+                "seoul,busan",
+                "--start-month",
+                "201001",
+                "--end-month",
+                "202606",
+                "--output",
+                "data/floor_stats.csv",
+                "--sleep-seconds",
+                "0.05",
+                "--max-retries",
+                "3",
+                "--workers",
+                "8",
+                "--retry-backoff-seconds",
+                "60",
+            ]
+        )
+
+        self.assertEqual(args.command, "fetch-historical-floor-stats")
+        self.assertEqual(args.city_codes, "seoul,busan")
+        self.assertEqual(args.start_month, "201001")
+        self.assertEqual(args.end_month, "202606")
+        self.assertEqual(args.output, "data/floor_stats.csv")
+        self.assertEqual(args.sleep_seconds, 0.05)
+        self.assertEqual(args.max_retries, 3)
+        self.assertEqual(args.workers, 8)
+        self.assertEqual(args.retry_backoff_seconds, 60)
+
+    def test_fetch_historical_floor_stats_command_writes_csv(self):
+        stat = HistoricalFloorStat(
+            city_code="seoul",
+            property_type="apartment",
+            district="강남구",
+            lawd_cd="11680",
+            legal_dong="역삼동",
+            building_name="테스트아파트",
+            observed_max_floor=21,
+            estimated_max_floor_rounded_4=24,
+            observation_count=12,
+            first_observed_yyyymm="201001",
+            last_observed_yyyymm="202606",
+            min_build_year=2001,
+            max_build_year=2005,
+            confidence="medium",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "historical_floor_stats.csv"
+            with (
+                patch("hedonic_house_price.cli.get_service_key", return_value="service-key"),
+                patch("hedonic_house_price.cli.fetch_historical_floor_stats", return_value=[stat]) as fetch_mock,
+                redirect_stderr(stderr),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main(
+                    [
+                        "fetch-historical-floor-stats",
+                        "--city-codes",
+                        "seoul,busan",
+                        "--start-month",
+                        "201001",
+                        "--end-month",
+                        "202606",
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(output_path.exists())
+            self.assertIn("테스트아파트", output_path.read_text(encoding="utf-8"))
+            fetch_mock.assert_called_once()
+            call_kwargs = fetch_mock.call_args.kwargs
+            self.assertEqual(call_kwargs["service_key"], "service-key")
+            self.assertEqual(call_kwargs["city_codes"], ["seoul", "busan"])
+            self.assertEqual(call_kwargs["start_month"], "201001")
+            self.assertEqual(call_kwargs["end_month"], "202606")
+            self.assertEqual(call_kwargs["workers"], 1)
+            self.assertEqual(call_kwargs["retry_backoff_seconds"], 30)
+            self.assertIn('"complexes": 1', stdout.getvalue())
+            self.assertIn("[fetch] 과거 최고층 통계 생성 완료", stderr.getvalue())
 
     def test_train_command_parses_model_options(self):
         args = build_parser().parse_args(

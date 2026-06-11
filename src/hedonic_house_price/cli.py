@@ -17,10 +17,11 @@ from .db_import import import_transactions_csv
 from .db_maintenance import clear_transaction_data, refresh_transaction_derived_snapshots
 from .db_training import read_transactions_from_training_view
 from .feature_coverage import generate_feature_coverage_report
-from .dates import recent_months
+from .dates import current_yyyymm, recent_months
 from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
 from .gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH, run_gui_server
 from .healthcare import import_healthcare_distance_snapshots_csvs
+from .historical_floors import fetch_historical_floor_stats, historical_months, write_historical_floor_stats_csv
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .model_diagnostics import generate_residual_diagnostics
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
@@ -58,6 +59,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="JSONL path for trades excluded during fetch. Defaults to <output stem>.skipped.jsonl.",
     )
+
+    historical_floor_parser = subparsers.add_parser(
+        "fetch-historical-floor-stats",
+        help="Fetch Seoul/Busan apartment trades since a historical month and infer complex max-floor stats.",
+    )
+    historical_floor_parser.add_argument("--output", default="data/seoul_busan_historical_complex_floor_stats.csv")
+    historical_floor_parser.add_argument("--city-codes", default="seoul,busan")
+    historical_floor_parser.add_argument("--start-month", default="201001")
+    historical_floor_parser.add_argument("--end-month", default=None, help="YYYYMM. Defaults to current month.")
+    historical_floor_parser.add_argument("--num-rows", type=int, default=1000)
+    historical_floor_parser.add_argument("--sleep-seconds", type=float, default=0.05)
+    historical_floor_parser.add_argument("--max-retries", type=int, default=2)
+    historical_floor_parser.add_argument("--retry-backoff-seconds", type=float, default=30)
+    historical_floor_parser.add_argument("--workers", type=int, default=1)
+    historical_floor_parser.add_argument("--progress-every", type=int, default=100)
 
     train_parser = subparsers.add_parser("train", help="Train the hedonic regression model.")
     train_parser.add_argument("--input", default="data/seoul_apartment_trades.csv")
@@ -273,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "fetch":
         return _handle_fetch(args)
+    if args.command == "fetch-historical-floor-stats":
+        return _handle_fetch_historical_floor_stats(args)
     if args.command == "train":
         return _handle_train(args)
     if args.command == "predict":
@@ -365,6 +383,63 @@ def _handle_fetch(args: argparse.Namespace) -> int:
                 "property_types": property_types,
                 "skipped_rows": skipped_rows,
                 "skip_log_output": str(skip_log_path) if skipped_rows else None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _handle_fetch_historical_floor_stats(args: argparse.Namespace) -> int:
+    service_key = get_service_key()
+    city_codes = _parse_city_codes(args.city_codes)
+    end_month = args.end_month or current_yyyymm()
+    months = historical_months(args.start_month, end_month)
+    progress_every = max(1, int(args.progress_every))
+
+    def progress(event: dict[str, object]) -> None:
+        if event["stage"] == "month" and int(event["requests"]) % progress_every == 0:
+            _print_fetch_progress(
+                "과거 최고층 거래 조회",
+                requests=event["requests"],
+                city_code=event["city_code"],
+                district=event["district"],
+                deal_month=event["deal_month"],
+                rows=event["rows"],
+                complexes=event["complexes"],
+            )
+
+    stats = fetch_historical_floor_stats(
+        service_key=service_key,
+        city_codes=city_codes,
+        start_month=args.start_month,
+        end_month=end_month,
+        num_rows=args.num_rows,
+        sleep_seconds=args.sleep_seconds,
+        max_retries=args.max_retries,
+        retry_backoff_seconds=args.retry_backoff_seconds,
+        workers=args.workers,
+        progress=progress,
+    )
+    write_historical_floor_stats_csv(stats, args.output)
+    total_observations = sum(stat.observation_count for stat in stats)
+    _print_fetch_progress(
+        "과거 최고층 통계 생성 완료",
+        output=args.output,
+        complexes=len(stats),
+        observations=total_observations,
+    )
+    print(
+        json.dumps(
+            {
+                "output": args.output,
+                "city_codes": city_codes,
+                "start_month": args.start_month,
+                "end_month": end_month,
+                "months_count": len(months),
+                "complexes": len(stats),
+                "observations": total_observations,
             },
             ensure_ascii=False,
             indent=2,

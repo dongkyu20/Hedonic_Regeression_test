@@ -215,6 +215,18 @@ PYTHONPATH=src python3 -m hedonic_house_price db-import-csv \
   --city-code busan
 ```
 
+최고층 추정 보강용으로 2010년 1월 이후 서울/부산 아파트 거래를 조회해 단지별 관측 최고층 통계 CSV를 만들 수 있습니다. 이 파일은 가격 학습용 거래 DB에 자동 적재되지 않습니다.
+
+```bash
+PYTHON_BIN=python3 \
+END_MONTH=202606 \
+WORKERS=1 \
+SLEEP_SECONDS=0.05 \
+scripts/fetch_historical_floor_stats.sh
+```
+
+API가 `HTTP 429 Too Many Requests`를 반환하면 일정 시간 후 재실행하거나 `WORKERS=1`, `RETRY_BACKOFF_SECONDS=60` 이상의 보수 설정을 사용합니다.
+
 MySQL의 `model_training_features` 뷰에서 거래를 읽어 학습하려면 `train --from-db`를 사용합니다.
 
 ```bash
