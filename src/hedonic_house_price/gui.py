@@ -56,6 +56,10 @@ def render_index_html(
     model_label: str | None = None,
     model_paths: dict[str, str] | None = None,
 ) -> str:
+    city_names = {
+        "seoul": "서울",
+        "busan": "부산",
+    }
     city_options = "\n".join(
         [
             '<option value="seoul">서울</option>',
@@ -63,27 +67,30 @@ def render_index_html(
         ]
     )
     district_options = "\n".join(
-        f'<option data-city="{html.escape(city_code)}" value="{html.escape(district)}">{html.escape(district)}</option>'
+        (
+            f'<option data-city="{html.escape(city_code)}" value="{html.escape(district)}" selected>{html.escape(district)}</option>'
+            if city_code == "seoul" and district == "강남구"
+            else f'<option data-city="{html.escape(city_code)}" value="{html.escape(district)}">{html.escape(district)}</option>'
+        )
         for city_code, district_codes in CITY_DISTRICT_CODES.items()
         for district in district_codes
     )
-    property_type_options = "\n".join(
-        [
-            '<option value="apartment">아파트</option>',
-            '<option value="officetel">오피스텔</option>',
-            '<option value="rowhouse">연립·다세대</option>',
-        ]
-    )
     display_model_label = model_label or "단일 모델"
     if model_paths:
-        model_lines = " · ".join(
+        model_title = " · ".join(
             f"{city_code}: {path}"
             for city_code, path in model_paths.items()
         )
+        model_summary = " · ".join(
+            f"{city_names.get(city_code, city_code)} 개선 모델"
+            for city_code in model_paths
+        )
     else:
-        model_lines = model_path or ""
+        model_title = model_path or ""
+        model_summary = model_path or "모델 파일 미지정"
     escaped_model_label = html.escape(display_model_label)
-    escaped_model_path = html.escape(model_lines)
+    escaped_model_title = html.escape(model_title)
+    escaped_model_summary = html.escape(model_summary)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -119,10 +126,8 @@ def render_index_html(
       padding: 28px 0 40px;
     }}
     header {{
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 16px;
+      display: grid;
+      gap: 8px;
       margin-bottom: 18px;
     }}
     h1 {{
@@ -134,7 +139,8 @@ def render_index_html(
     .model {{
       color: var(--muted);
       font-size: 13px;
-      white-space: nowrap;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
     }}
     main {{
       display: grid;
@@ -221,6 +227,7 @@ def render_index_html(
       gap: 8px;
       color: var(--muted);
       font-size: 13px;
+      overflow-wrap: anywhere;
     }}
     .error {{
       color: var(--danger);
@@ -232,8 +239,6 @@ def render_index_html(
       font-size: 14px;
     }}
     @media (max-width: 820px) {{
-      header {{ align-items: flex-start; flex-direction: column; }}
-      .model {{ white-space: normal; }}
       main {{ grid-template-columns: 1fr; }}
       .grid {{ grid-template-columns: 1fr; }}
       .price {{ font-size: 26px; }}
@@ -244,16 +249,12 @@ def render_index_html(
   <div class="app">
     <header>
       <h1>서울·부산 아파트 매매가 예측</h1>
-      <div class="model">{escaped_model_label} · {escaped_model_path}</div>
+      <div class="model" title="{escaped_model_title}">{escaped_model_label} · {escaped_model_summary}</div>
     </header>
     <main>
       <form id="prediction-form" class="panel">
+        <input type="hidden" name="property_type" value="apartment">
         <div class="grid">
-          <label>주택유형
-            <select name="property_type" required>
-              {property_type_options}
-            </select>
-          </label>
           <label>도시
             <select name="city_code" required>
               {city_options}
@@ -284,12 +285,6 @@ def render_index_html(
           </label>
           <label>계약일
             <input name="deal_day" type="number" inputmode="numeric" min="1" max="31" value="15">
-          </label>
-          <label>연립·다세대 유형
-            <input name="house_type" type="text" placeholder="예: 다세대">
-          </label>
-          <label>대지권면적 m²
-            <input name="land_area" type="number" inputmode="decimal" step="0.01" min="0">
           </label>
         </div>
         <div class="actions">
@@ -350,8 +345,8 @@ def render_index_html(
             <div class="subprice">${{Number(data.price_manwon).toLocaleString("ko-KR")}}만원</div>
           <div class="meta">
             <div>로그 가격 ${{Number(data.log_price).toFixed(4)}}</div>
-            <div>모델 ${{data.model_city_code || payload.city_code}} · ${{data.model_path || ""}}</div>
-            <div>유형 ${{payload.property_type}} · 자치구 ${{payload.district}} · 법정동 ${{payload.legal_dong}} · ${{payload.floor}}층</div>
+            <div>모델 ${{modelLabel(data.model_city_code || payload.city_code)}}</div>
+            <div>자치구 ${{payload.district}} · 법정동 ${{payload.legal_dong}} · ${{payload.floor}}층</div>
           </div>
         `;
       }} catch (error) {{
@@ -361,6 +356,16 @@ def render_index_html(
         button.disabled = false;
       }}
     }});
+
+    function modelLabel(cityCode) {{
+      if (cityCode === "seoul") {{
+        return "서울 개선 모델";
+      }}
+      if (cityCode === "busan") {{
+        return "부산 개선 모델";
+      }}
+      return "단일 모델";
+    }}
   </script>
 </body>
 </html>

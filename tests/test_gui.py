@@ -54,12 +54,29 @@ class GuiTests(unittest.TestCase):
         self.assertIn("name=\"floor\"", html)
         self.assertIn("name=\"build_year\"", html)
         self.assertNotIn("name=\"apartment_name\"", html)
-        self.assertIn("오피스텔", html)
-        self.assertIn("연립·다세대", html)
         self.assertIn("강남구", html)
         self.assertIn("해운대구", html)
         self.assertIn("artifacts/seoul.pkl", html)
         self.assertIn("artifacts/busan.pkl", html)
+
+    def test_render_index_html_uses_compact_apartment_only_layout(self):
+        html = render_index_html(
+            model_label="서울/부산 개선 모델",
+            model_paths={
+                "seoul": "artifacts/seoul.pkl",
+                "busan": "artifacts/busan.pkl",
+            },
+        )
+
+        self.assertIn("서울 개선 모델 · 부산 개선 모델", html)
+        self.assertIn('type="hidden" name="property_type" value="apartment"', html)
+        self.assertIn('value="강남구" selected', html)
+        self.assertIn("overflow-wrap: anywhere", html)
+        self.assertNotIn("white-space: nowrap", html)
+        self.assertNotIn("<option value=\"officetel\">", html)
+        self.assertNotIn("<option value=\"rowhouse\">", html)
+        self.assertNotIn("name=\"house_type\"", html)
+        self.assertNotIn("name=\"land_area\"", html)
 
     def test_build_prediction_input_coerces_form_payload_and_infers_lawd_code(self):
         prediction_input = build_prediction_input(
