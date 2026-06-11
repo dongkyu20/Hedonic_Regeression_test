@@ -19,7 +19,7 @@ from .db_training import read_transactions_from_training_view
 from .feature_coverage import generate_feature_coverage_report
 from .dates import recent_months
 from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
-from .gui import run_gui_server
+from .gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH, run_gui_server
 from .healthcare import import_healthcare_distance_snapshots_csvs
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .model_diagnostics import generate_residual_diagnostics
@@ -96,7 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     predict_parser.add_argument("--build-year", type=int, required=True)
 
     gui_parser = subparsers.add_parser("gui", help="Run the local browser GUI.")
-    gui_parser.add_argument("--model", default="artifacts/hedonic_model.pkl")
+    gui_parser.add_argument("--model", default=None, help="Optional single-model override.")
+    gui_parser.add_argument("--seoul-model", default=DEFAULT_SEOUL_MODEL_PATH)
+    gui_parser.add_argument("--busan-model", default=DEFAULT_BUSAN_MODEL_PATH)
     gui_parser.add_argument("--host", default="127.0.0.1")
     gui_parser.add_argument("--port", type=int, default=8000)
 
@@ -533,7 +535,13 @@ def _handle_predict(args: argparse.Namespace) -> int:
 
 
 def _handle_gui(args: argparse.Namespace) -> int:
-    run_gui_server(model_path=args.model, host=args.host, port=args.port)
+    run_gui_server(
+        model_path=args.model,
+        host=args.host,
+        port=args.port,
+        seoul_model_path=args.seoul_model,
+        busan_model_path=args.busan_model,
+    )
     return 0
 
 

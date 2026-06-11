@@ -2,19 +2,70 @@ from __future__ import annotations
 
 import html
 import json
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .law_codes import SEOUL_DISTRICT_CODES
+from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_code_for_lawd_cd
 from .modeling import PredictionInput, load_model, predict_price
 
 
-def render_index_html(model_path: str) -> str:
+DEFAULT_SEOUL_MODEL_PATH = "artifacts/hedonic_db_hist_gradient_boosting_target_encoding_seoul_deep_model.pkl"
+DEFAULT_BUSAN_MODEL_PATH = "artifacts/hedonic_db_hist_gradient_boosting_target_encoding_busan_deep_model.pkl"
+
+
+@dataclass(frozen=True)
+class CityModelRouter:
+    models: dict[str, object]
+    model_paths: dict[str, str]
+    fallback_model: object | None = None
+    fallback_model_path: str | None = None
+
+    def model_for(self, prediction_input: PredictionInput) -> object:
+        city_code = self.city_code_for(prediction_input)
+        model = self.models.get(city_code)
+        if model is not None:
+            return model
+        if self.fallback_model is not None:
+            return self.fallback_model
+        raise ValueError(f"model is not configured for city_code: {city_code}")
+
+    def city_code_for(self, prediction_input: PredictionInput) -> str:
+        return city_code_for_lawd_cd(prediction_input.lawd_cd)
+
+    def model_path_for(self, prediction_input: PredictionInput) -> str:
+        city_code = self.city_code_for(prediction_input)
+        if city_code in self.model_paths:
+            return self.model_paths[city_code]
+        if self.fallback_model_path:
+            return self.fallback_model_path
+        return ""
+
+    def predict(self, prediction_input: PredictionInput) -> dict[str, int | float | str]:
+        prediction = dict(predict_price(self.model_for(prediction_input), prediction_input))
+        prediction["model_city_code"] = self.city_code_for(prediction_input)
+        prediction["model_path"] = self.model_path_for(prediction_input)
+        return prediction
+
+
+def render_index_html(
+    model_path: str | None = None,
+    *,
+    model_label: str | None = None,
+    model_paths: dict[str, str] | None = None,
+) -> str:
+    city_options = "\n".join(
+        [
+            '<option value="seoul">서울</option>',
+            '<option value="busan">부산</option>',
+        ]
+    )
     district_options = "\n".join(
-        f'<option value="{html.escape(district)}">{html.escape(district)}</option>'
-        for district in SEOUL_DISTRICT_CODES
+        f'<option data-city="{html.escape(city_code)}" value="{html.escape(district)}">{html.escape(district)}</option>'
+        for city_code, district_codes in CITY_DISTRICT_CODES.items()
+        for district in district_codes
     )
     property_type_options = "\n".join(
         [
@@ -23,13 +74,22 @@ def render_index_html(model_path: str) -> str:
             '<option value="rowhouse">연립·다세대</option>',
         ]
     )
-    escaped_model_path = html.escape(model_path)
+    display_model_label = model_label or "단일 모델"
+    if model_paths:
+        model_lines = " · ".join(
+            f"{city_code}: {path}"
+            for city_code, path in model_paths.items()
+        )
+    else:
+        model_lines = model_path or ""
+    escaped_model_label = html.escape(display_model_label)
+    escaped_model_path = html.escape(model_lines)
     return f"""<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>서울 공동주택 매매가 예측</title>
+  <title>서울·부산 아파트 매매가 예측</title>
   <style>
     :root {{
       color-scheme: light;
@@ -183,8 +243,8 @@ def render_index_html(model_path: str) -> str:
 <body>
   <div class="app">
     <header>
-      <h1>서울 공동주택 매매가 예측</h1>
-      <div class="model">모델 {escaped_model_path}</div>
+      <h1>서울·부산 아파트 매매가 예측</h1>
+      <div class="model">{escaped_model_label} · {escaped_model_path}</div>
     </header>
     <main>
       <form id="prediction-form" class="panel">
@@ -192,6 +252,11 @@ def render_index_html(model_path: str) -> str:
           <label>주택유형
             <select name="property_type" required>
               {property_type_options}
+            </select>
+          </label>
+          <label>도시
+            <select name="city_code" required>
+              {city_options}
             </select>
           </label>
           <label>자치구
@@ -241,6 +306,27 @@ def render_index_html(model_path: str) -> str:
     const form = document.getElementById("prediction-form");
     const result = document.getElementById("result");
     const button = form.querySelector("button");
+    const citySelect = form.elements.city_code;
+    const districtSelect = form.elements.district;
+
+    function syncDistrictOptions() {{
+      const city = citySelect.value;
+      let firstVisible = "";
+      for (const option of districtSelect.options) {{
+        const visible = option.dataset.city === city;
+        option.hidden = !visible;
+        option.disabled = !visible;
+        if (visible && !firstVisible) {{
+          firstVisible = option.value;
+        }}
+      }}
+      if (districtSelect.selectedOptions.length && districtSelect.selectedOptions[0].dataset.city !== city) {{
+        districtSelect.value = firstVisible;
+      }}
+    }}
+
+    citySelect.addEventListener("change", syncDistrictOptions);
+    syncDistrictOptions();
 
     form.addEventListener("submit", async (event) => {{
       event.preventDefault();
@@ -261,9 +347,10 @@ def render_index_html(model_path: str) -> str:
         result.className = "";
         result.innerHTML = `
           <div class="price">${{Number(data.price_krw).toLocaleString("ko-KR")}}원</div>
-          <div class="subprice">${{Number(data.price_manwon).toLocaleString("ko-KR")}}만원</div>
+            <div class="subprice">${{Number(data.price_manwon).toLocaleString("ko-KR")}}만원</div>
           <div class="meta">
             <div>로그 가격 ${{Number(data.log_price).toFixed(4)}}</div>
+            <div>모델 ${{data.model_city_code || payload.city_code}} · ${{data.model_path || ""}}</div>
             <div>유형 ${{payload.property_type}} · 자치구 ${{payload.district}} · 법정동 ${{payload.legal_dong}} · ${{payload.floor}}층</div>
           </div>
         `;
@@ -282,7 +369,7 @@ def render_index_html(model_path: str) -> str:
 
 def build_prediction_input(payload: dict[str, Any]) -> PredictionInput:
     district = _required_text(payload, "district")
-    lawd_cd = str(payload.get("lawd_cd") or SEOUL_DISTRICT_CODES.get(district, "")).strip()
+    lawd_cd = str(payload.get("lawd_cd") or _lawd_cd_for_payload(payload, district)).strip()
     if not lawd_cd:
         raise ValueError("lawd_cd is required for unknown district")
 
@@ -303,23 +390,64 @@ def build_prediction_input(payload: dict[str, Any]) -> PredictionInput:
     )
 
 
-def run_gui_server(model_path: str = "artifacts/hedonic_model.pkl", host: str = "127.0.0.1", port: int = 8000) -> None:
-    model_file = Path(model_path)
-    if not model_file.exists():
-        raise FileNotFoundError(f"model file does not exist: {model_path}")
-    model = load_model(model_file)
-    handler = _make_handler(model, model_path)
+def run_gui_server(
+    model_path: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    seoul_model_path: str = DEFAULT_SEOUL_MODEL_PATH,
+    busan_model_path: str = DEFAULT_BUSAN_MODEL_PATH,
+) -> None:
+    router = load_city_model_router(
+        model_path=model_path,
+        seoul_model_path=seoul_model_path,
+        busan_model_path=busan_model_path,
+    )
+    handler = _make_handler(router)
     server = ThreadingHTTPServer((host, port), handler)
     print(f"GUI running at http://{host}:{port}", flush=True)
     server.serve_forever()
 
 
-def _make_handler(model: object, model_path: str) -> type[BaseHTTPRequestHandler]:
+def load_city_model_router(
+    *,
+    model_path: str | None = None,
+    seoul_model_path: str = DEFAULT_SEOUL_MODEL_PATH,
+    busan_model_path: str = DEFAULT_BUSAN_MODEL_PATH,
+) -> CityModelRouter:
+    if model_path:
+        model_file = Path(model_path)
+        if not model_file.exists():
+            raise FileNotFoundError(f"model file does not exist: {model_path}")
+        return CityModelRouter(models={}, model_paths={}, fallback_model=load_model(model_file), fallback_model_path=model_path)
+
+    model_paths = {
+        "seoul": seoul_model_path,
+        "busan": busan_model_path,
+    }
+    models: dict[str, object] = {}
+    for city_code, path in model_paths.items():
+        model_file = Path(path)
+        if not model_file.exists():
+            raise FileNotFoundError(f"{city_code} model file does not exist: {path}")
+        models[city_code] = load_model(model_file)
+    return CityModelRouter(models=models, model_paths=model_paths)
+
+
+def _make_handler(router: CityModelRouter) -> type[BaseHTTPRequestHandler]:
     class GuiHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             path = urlparse(self.path).path
             if path in {"/", "/index.html"}:
-                _send_text(self, 200, render_index_html(model_path), "text/html; charset=utf-8")
+                _send_text(
+                    self,
+                    200,
+                    render_index_html(
+                        model_label="서울/부산 개선 모델" if router.models else "단일 모델",
+                        model_paths=router.model_paths,
+                        model_path=router.fallback_model_path,
+                    ),
+                    "text/html; charset=utf-8",
+                )
                 return
             if path == "/api/health":
                 _send_json(self, 200, {"ok": True})
@@ -335,7 +463,7 @@ def _make_handler(model: object, model_path: str) -> type[BaseHTTPRequestHandler
             try:
                 payload = _read_json_body(self)
                 prediction_input = build_prediction_input(payload)
-                prediction = predict_price(model, prediction_input)
+                prediction = router.predict(prediction_input)
                 _send_json(self, 200, prediction)
             except Exception as exc:
                 _send_json(self, 400, {"error": str(exc)})
@@ -355,6 +483,27 @@ def _read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("request body must be a JSON object")
     return payload
+
+
+def _lawd_cd_for_payload(payload: dict[str, Any], district: str) -> str:
+    city_code = str(payload.get("city_code") or "").strip().lower()
+    if city_code:
+        district_codes = CITY_DISTRICT_CODES.get(city_code)
+        if district_codes is None:
+            raise ValueError(f"unsupported city_code: {city_code}")
+        return district_codes.get(district, "")
+
+    matches = [
+        lawd_cd
+        for district_codes in CITY_DISTRICT_CODES.values()
+        for candidate_district, lawd_cd in district_codes.items()
+        if candidate_district == district
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError("city_code is required for ambiguous district")
+    return SEOUL_DISTRICT_CODES.get(district, "")
 
 
 def _send_text(handler: BaseHTTPRequestHandler, status: int, text: str, content_type: str) -> None:

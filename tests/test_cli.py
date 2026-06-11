@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hedonic_house_price.cli import build_parser, main
+from hedonic_house_price.gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH
 from hedonic_house_price.transactions import Transaction, write_transactions_csv
 
 
@@ -163,8 +164,42 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(args.command, "gui")
         self.assertEqual(args.model, "artifacts/model.pkl")
+        self.assertEqual(args.seoul_model, DEFAULT_SEOUL_MODEL_PATH)
+        self.assertEqual(args.busan_model, DEFAULT_BUSAN_MODEL_PATH)
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 8123)
+
+    def test_gui_command_defaults_to_improved_city_models(self):
+        args = build_parser().parse_args(["gui"])
+
+        self.assertIsNone(args.model)
+        self.assertEqual(args.seoul_model, DEFAULT_SEOUL_MODEL_PATH)
+        self.assertEqual(args.busan_model, DEFAULT_BUSAN_MODEL_PATH)
+
+    def test_gui_command_starts_city_model_server_with_selected_models(self):
+        with patch("hedonic_house_price.cli.run_gui_server") as run_gui_server:
+            exit_code = main(
+                [
+                    "gui",
+                    "--seoul-model",
+                    "artifacts/seoul.pkl",
+                    "--busan-model",
+                    "artifacts/busan.pkl",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8123",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        run_gui_server.assert_called_once_with(
+            model_path=None,
+            host="0.0.0.0",
+            port=8123,
+            seoul_model_path="artifacts/seoul.pkl",
+            busan_model_path="artifacts/busan.pkl",
+        )
 
     def test_db_init_command_parses_schema_and_seed_options(self):
         args = build_parser().parse_args(
