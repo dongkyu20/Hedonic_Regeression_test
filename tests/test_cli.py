@@ -147,7 +147,7 @@ class CliTests(unittest.TestCase):
             legal_dong="역삼동",
             building_name="테스트아파트",
             observed_max_floor=21,
-            estimated_max_floor_rounded_4=24,
+            estimated_max_floor=21,
             observation_count=12,
             first_observed_yyyymm="201001",
             last_observed_yyyymm="202606",

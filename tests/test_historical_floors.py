@@ -49,7 +49,7 @@ class HistoricalFloorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "start_month"):
             historical_months("201004", "201001")
 
-    def test_build_historical_floor_stats_rounds_observed_max_floor_to_four_floor_step(self):
+    def test_build_historical_floor_stats_uses_observed_max_floor_as_estimate(self):
         rows = [
             tx(floor=3, year=2011, month=1),
             tx(floor=21, year=2019, month=5),
@@ -60,14 +60,14 @@ class HistoricalFloorTests(unittest.TestCase):
 
         high = stats[("apartment", "11680", "역삼동", "테스트아파트")]
         self.assertEqual(high.observed_max_floor, 21)
-        self.assertEqual(high.estimated_max_floor_rounded_4, 24)
+        self.assertEqual(high.estimated_max_floor, 21)
         self.assertEqual(high.observation_count, 2)
         self.assertEqual(high.first_observed_yyyymm, "201101")
         self.assertEqual(high.last_observed_yyyymm, "201905")
 
         low = stats[("apartment", "11680", "역삼동", "낮은단지")]
         self.assertEqual(low.observed_max_floor, 7)
-        self.assertEqual(low.estimated_max_floor_rounded_4, 8)
+        self.assertEqual(low.estimated_max_floor, 7)
 
     def test_build_historical_floor_stats_tracks_city_and_confidence(self):
         rows = [
@@ -93,7 +93,7 @@ class HistoricalFloorTests(unittest.TestCase):
             legal_dong="역삼동",
             building_name="테스트아파트",
             observed_max_floor=21,
-            estimated_max_floor_rounded_4=24,
+            estimated_max_floor=21,
             observation_count=12,
             first_observed_yyyymm="201001",
             last_observed_yyyymm="202606",
@@ -112,7 +112,7 @@ class HistoricalFloorTests(unittest.TestCase):
         self.assertEqual(rows[0]["city_code"], "seoul")
         self.assertEqual(rows[0]["building_name"], "테스트아파트")
         self.assertEqual(rows[0]["observed_max_floor"], "21")
-        self.assertEqual(rows[0]["estimated_max_floor_rounded_4"], "24")
+        self.assertEqual(rows[0]["estimated_max_floor"], "21")
 
     def test_fetch_historical_floor_stats_accumulates_monthly_city_district_fetches(self):
         calls = []
@@ -139,7 +139,7 @@ class HistoricalFloorTests(unittest.TestCase):
         self.assertEqual(calls[0]["property_type"], "apartment")
         self.assertEqual(len(stats), 1)
         self.assertEqual(stats[0].city_code, "seoul")
-        self.assertEqual(stats[0].estimated_max_floor_rounded_4, 24)
+        self.assertEqual(stats[0].estimated_max_floor, 21)
 
 
 if __name__ == "__main__":

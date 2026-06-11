@@ -167,7 +167,7 @@ PYTHONPATH=src python3 -m hedonic_house_price gui --model artifacts/hedonic_mode
 
 학습은 scikit-learn `Pipeline`으로 구성됩니다. `DictVectorizer(sparse=False)`가 범주형 변수를 원핫 인코딩하고, `HistGradientBoostingRegressor`가 로그 거래가격을 학습합니다. 기본값은 `max_iter=300`, `learning_rate=0.06`, `max_leaf_nodes=31`, `min_samples_leaf=30`, `l2_regularization=0.0`, `random_state=42`입니다. 트리 기반 모델이므로 선형모델용 스케일링 단계는 사용하지 않습니다. 모델 아티팩트는 sklearn 객체를 포함하므로 pickle 파일(`.pkl`)로 저장됩니다.
 
-층은 단순히 높을수록 비싸다고 가정하지 않습니다. 원시 층수 대신 `floor_band`와 `low_floor`를 사용해 저층 할인, 중층/중고층 선호, 초고층의 다른 가격 패턴을 범주형 효과로 학습합니다. 또한 거래내역에서 단지별 관측 최고층을 구한 뒤 4층 단위로 올림해 `estimated_max_floor`를 만들고, `relative_floor`, `is_first_floor`, `is_floor_2_3`, `is_estimated_top_floor`, `is_near_estimated_top_floor`를 추가합니다. 연식도 `deal_year - build_year`를 학습 시점에 계산한 뒤 `age_band`로 구간화합니다.
+층은 단순히 높을수록 비싸다고 가정하지 않습니다. 원시 층수 대신 `floor_band`와 `low_floor`를 사용해 저층 할인, 중층/중고층 선호, 초고층의 다른 가격 패턴을 범주형 효과로 학습합니다. 또한 거래내역에서 단지별 관측 최고층을 그대로 `estimated_max_floor`로 사용하고, `relative_floor`, `is_first_floor`, `is_floor_2_3`, `is_estimated_top_floor`, `is_near_estimated_top_floor`를 추가합니다. 연식도 `deal_year - build_year`를 학습 시점에 계산한 뒤 `age_band`로 구간화합니다.
 
 MySQL `model_training_features`로 학습할 때는 보강된 snapshot feature도 함께 사용합니다. 세대수와 총주차대수, 모든 거리/접근시간, 공원 면적 합계는 `log1p`로 변환하고, 지하철·버스·학교·학원·최근 거래량 같은 개수 변수는 구간화합니다. 동수 원본은 직접 쓰지 않고 `households_per_building`을 계산하며, 공원 면적은 `park_exists` 더미와 `log1p(park_area_total_m2_radius)`를 함께 사용합니다.
 

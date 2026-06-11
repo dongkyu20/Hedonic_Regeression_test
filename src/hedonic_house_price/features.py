@@ -52,10 +52,7 @@ def estimate_complex_max_floors(transactions: list[Transaction]) -> dict[Complex
         key = complex_floor_key(transaction)
         observed_max_floors[key] = max(observed_max_floors.get(key, transaction.floor), transaction.floor)
 
-    return {
-        key: _round_up_to_floor_step(max_floor)
-        for key, max_floor in observed_max_floors.items()
-    }
+    return observed_max_floors
 
 
 def floor_band(floor: int) -> str:
@@ -186,7 +183,7 @@ def _max_floor_context(
     transaction: Transaction,
     estimated_max_floors: dict[ComplexFloorKey, int] | None,
 ) -> tuple[int, str]:
-    current_floor_estimate = _round_up_to_floor_step(transaction.floor)
+    current_floor_estimate = max(1, int(transaction.floor))
     if not estimated_max_floors:
         return current_floor_estimate, "current_floor_estimate"
     mapped_floor = estimated_max_floors.get(complex_floor_key(transaction))
@@ -251,11 +248,6 @@ def _add_kapt_floor_features(
     row["kapt_relative_floor_bin"] = relative_floor_bin(relative_floor)
     row["floors_below_kapt_top"] = floors_below_top
     row["floors_below_kapt_top_bin"] = floors_below_top_bin(floors_below_top)
-
-
-def _round_up_to_floor_step(floor: int, step: int = 4) -> int:
-    normalized_floor = max(1, int(floor))
-    return ((normalized_floor + step - 1) // step) * step
 
 
 def _split_yyyymm(value: str) -> tuple[int, int]:

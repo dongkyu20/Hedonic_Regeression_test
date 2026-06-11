@@ -178,7 +178,7 @@ class ModelingTests(unittest.TestCase):
         self.assertNotIn("floor_squared", feature_names)
         self.assertNotIn("building_count", feature_names)
 
-    def test_train_hedonic_model_stores_rounded_complex_floor_estimates(self):
+    def test_train_hedonic_model_stores_observed_complex_floor_estimates(self):
         transactions = [
             Transaction(
                 district="강남구",
@@ -204,7 +204,7 @@ class ModelingTests(unittest.TestCase):
             validation_months=2,
         )
 
-        self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 8)
+        self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 7)
 
     def test_train_hedonic_model_estimates_max_floor_from_training_split_only(self):
         transactions = [
@@ -233,7 +233,7 @@ class ModelingTests(unittest.TestCase):
             validation_months=2,
         )
 
-        self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 8)
+        self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 7)
 
     def test_train_hedonic_model_adds_training_split_smoothed_target_encodings(self):
         transactions = []

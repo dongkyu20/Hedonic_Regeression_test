@@ -25,7 +25,7 @@ CSV_FIELDS = [
     "legal_dong",
     "building_name",
     "observed_max_floor",
-    "estimated_max_floor_rounded_4",
+    "estimated_max_floor",
     "observation_count",
     "first_observed_yyyymm",
     "last_observed_yyyymm",
@@ -44,7 +44,7 @@ class HistoricalFloorStat:
     legal_dong: str
     building_name: str
     observed_max_floor: int
-    estimated_max_floor_rounded_4: int
+    estimated_max_floor: int
     observation_count: int
     first_observed_yyyymm: str
     last_observed_yyyymm: str
@@ -70,7 +70,7 @@ class HistoricalFloorStat:
             "legal_dong": self.legal_dong,
             "building_name": self.building_name,
             "observed_max_floor": str(self.observed_max_floor),
-            "estimated_max_floor_rounded_4": str(self.estimated_max_floor_rounded_4),
+            "estimated_max_floor": str(self.estimated_max_floor),
             "observation_count": str(self.observation_count),
             "first_observed_yyyymm": self.first_observed_yyyymm,
             "last_observed_yyyymm": self.last_observed_yyyymm,
@@ -112,7 +112,7 @@ class _MutableFloorStat:
             legal_dong=self.legal_dong,
             building_name=self.building_name,
             observed_max_floor=self.observed_max_floor,
-            estimated_max_floor_rounded_4=round_up_to_floor_step(self.observed_max_floor),
+            estimated_max_floor=self.observed_max_floor,
             observation_count=self.observation_count,
             first_observed_yyyymm=self.first_observed_yyyymm,
             last_observed_yyyymm=self.last_observed_yyyymm,
@@ -354,11 +354,6 @@ def floor_confidence(observation_count: int) -> str:
     if observation_count >= 5:
         return "medium"
     return "low"
-
-
-def round_up_to_floor_step(floor: int, step: int = 4) -> int:
-    normalized_floor = max(1, int(floor))
-    return ((normalized_floor + step - 1) // step) * step
 
 
 def _floor_key(transaction: Transaction) -> HistoricalFloorKey:
