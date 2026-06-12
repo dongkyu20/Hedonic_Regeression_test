@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .access_times import import_average_access_time_snapshots_xlsx
+from .academies import import_academy_count_snapshots_csv
 from .bus_stops import import_bus_stop_distance_snapshots_csv
 from .client import fetch_transactions
 from .complex_info import import_complex_basic_info_csv, import_complex_property_conditions_csv
@@ -16,14 +17,23 @@ from .db_import import import_transactions_csv
 from .db_maintenance import clear_transaction_data, refresh_transaction_derived_snapshots
 from .db_training import read_transactions_from_training_view
 from .feature_coverage import generate_feature_coverage_report
-from .dates import recent_months
+from .dates import current_yyyymm, recent_months
 from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
-from .gui import run_gui_server
+from .gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH, run_gui_server
+from .healthcare import import_healthcare_distance_snapshots_csvs
+from .historical_floors import (
+    fetch_historical_floor_stats,
+    historical_months,
+    read_estimated_max_floors_csv,
+    write_historical_floor_stats_csv,
+)
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
+from .model_diagnostics import generate_residual_diagnostics
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
 from .parks import import_park_environment_snapshots_xls
 from .school_distances import import_school_distance_snapshots_csv
 from .subway_distances import import_subway_distance_snapshots_csvs
+from .training_runs import RunMetadata, write_training_run_artifacts
 from .transactions import normalize_property_type, read_transactions_csv, write_transactions_csv
 
 
@@ -55,13 +65,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSONL path for trades excluded during fetch. Defaults to <output stem>.skipped.jsonl.",
     )
 
+    historical_floor_parser = subparsers.add_parser(
+        "fetch-historical-floor-stats",
+        help="Fetch Seoul/Busan apartment trades since a historical month and infer complex max-floor stats.",
+    )
+    historical_floor_parser.add_argument("--output", default="data/seoul_busan_historical_complex_floor_stats.csv")
+    historical_floor_parser.add_argument("--city-codes", default="seoul,busan")
+    historical_floor_parser.add_argument("--start-month", default="201001")
+    historical_floor_parser.add_argument("--end-month", default=None, help="YYYYMM. Defaults to current month.")
+    historical_floor_parser.add_argument("--num-rows", type=int, default=1000)
+    historical_floor_parser.add_argument("--sleep-seconds", type=float, default=0.05)
+    historical_floor_parser.add_argument("--max-retries", type=int, default=2)
+    historical_floor_parser.add_argument("--retry-backoff-seconds", type=float, default=30)
+    historical_floor_parser.add_argument("--workers", type=int, default=1)
+    historical_floor_parser.add_argument("--progress-every", type=int, default=100)
+
     train_parser = subparsers.add_parser("train", help="Train the hedonic regression model.")
     train_parser.add_argument("--input", default="data/seoul_apartment_trades.csv")
     train_parser.add_argument("--model-output", default="artifacts/hedonic_model.pkl")
-    train_parser.add_argument("--alpha", type=float, default=1.0)
+    train_parser.add_argument("--max-iter", type=int, default=300)
+    train_parser.add_argument("--learning-rate", type=float, default=0.06)
+    train_parser.add_argument("--max-leaf-nodes", type=int, default=31)
+    train_parser.add_argument("--min-samples-leaf", type=int, default=30)
+    train_parser.add_argument("--l2-regularization", type=float, default=0.0)
+    train_parser.add_argument("--random-state", type=int, default=42)
     train_parser.add_argument("--min-apartment-count", type=int, default=5, help=argparse.SUPPRESS)
     train_parser.add_argument("--validation-months", type=int, default=6)
+    train_parser.add_argument("--run-output-dir", default=None, help="Optional directory for a full training-run manifest and artifacts.")
+    train_parser.add_argument("--floor-stats", default=None, help="Optional complex max-floor stats CSV.")
+    train_parser.add_argument("--global-calibration-shrinkage", type=float, default=0.0)
+    train_parser.add_argument("--global-calibration-max-log-offset", type=float, default=0.0)
     train_parser.add_argument("--from-db", action="store_true", help="Train from MySQL model_training_features instead of CSV.")
+    train_parser.add_argument(
+        "--allow-missing-factors",
+        action="store_true",
+        help="Include DB training rows even when enriched factor snapshots are incomplete.",
+    )
     train_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None, help="Filter DB training rows by city.")
     train_parser.add_argument(
         "--property-types",
@@ -86,7 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
     predict_parser.add_argument("--build-year", type=int, required=True)
 
     gui_parser = subparsers.add_parser("gui", help="Run the local browser GUI.")
-    gui_parser.add_argument("--model", default="artifacts/hedonic_model.pkl")
+    gui_parser.add_argument("--model", default=None, help="Optional single-model override.")
+    gui_parser.add_argument("--seoul-model", default=DEFAULT_SEOUL_MODEL_PATH)
+    gui_parser.add_argument("--busan-model", default=DEFAULT_BUSAN_MODEL_PATH)
     gui_parser.add_argument("--host", default="127.0.0.1")
     gui_parser.add_argument("--port", type=int, default=8000)
 
@@ -184,11 +225,70 @@ def build_parser() -> argparse.ArgumentParser:
     db_park_parser.add_argument("--source-name", default="park_standard_data")
     db_park_parser.add_argument("--radius-m", type=int, default=1000)
 
+    db_academy_parser = subparsers.add_parser(
+        "db-import-academy-counts",
+        help="Fill academy radius-count fields from nearby-apartment academy data with city CSV fallback.",
+    )
+    db_academy_parser.add_argument("--primary-input", required=True)
+    db_academy_parser.add_argument("--seoul-input", required=True)
+    db_academy_parser.add_argument("--busan-input", required=True)
+    db_academy_parser.add_argument("--source-name", default="academy_nearby_complex_2604")
+    db_academy_parser.add_argument("--radius-m", type=int, default=500)
+    db_academy_parser.add_argument("--provider", choices=["kakao"], default="kakao")
+    db_academy_parser.add_argument("--api-key", default=None, help="Provider API key. Defaults to KAKAO_REST_API_KEY.")
+    db_academy_parser.add_argument("--sleep-seconds", type=float, default=0.05)
+    db_academy_parser.add_argument("--geocode-cache", default="artifacts/academy_geocode_cache.csv")
+
+    db_healthcare_parser = subparsers.add_parser(
+        "db-import-healthcare-distances",
+        help="Fill nearest hospital and pharmacy distance fields from healthcare facility CSVs.",
+    )
+    db_healthcare_parser.add_argument(
+        "--seoul-hospital-input",
+        required=True,
+        action="append",
+        help="Seoul hospital/clinic CSV path. Repeat for hospital and clinic files.",
+    )
+    db_healthcare_parser.add_argument(
+        "--busan-hospital-input",
+        required=True,
+        action="append",
+        help="Busan hospital/clinic CSV path. Repeat for hospital and clinic files.",
+    )
+    db_healthcare_parser.add_argument(
+        "--seoul-pharmacy-input",
+        required=True,
+        action="append",
+        help="Seoul pharmacy CSV path.",
+    )
+    db_healthcare_parser.add_argument(
+        "--busan-pharmacy-input",
+        required=True,
+        action="append",
+        help="Busan pharmacy CSV path.",
+    )
+    db_healthcare_parser.add_argument("--source-name", default="healthcare_facility")
+
     db_feature_coverage_parser = subparsers.add_parser(
         "db-feature-coverage",
         help="Write feature coverage CSV and Markdown reports from model_training_features.",
     )
     db_feature_coverage_parser.add_argument("--output-dir", default="artifacts/feature_coverage")
+
+    model_diagnostics_parser = subparsers.add_parser(
+        "model-diagnostics",
+        help="Write validation residual diagnostics by feature condition.",
+    )
+    model_diagnostics_parser.add_argument("--model", default="artifacts/hedonic_db_preprocessed_model.pkl")
+    model_diagnostics_parser.add_argument("--output-dir", default="artifacts/model_diagnostics")
+    model_diagnostics_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None)
+    model_diagnostics_parser.add_argument(
+        "--property-types",
+        default="apartment",
+        help="Comma-separated DB training property types. Defaults to apartment.",
+    )
+    model_diagnostics_parser.add_argument("--validation-months", type=int, default=6)
+    model_diagnostics_parser.add_argument("--min-segment-count", type=int, default=100)
 
     subparsers.add_parser("db-clear-data", help="Delete loaded transaction, complex, and factor snapshot data.")
     subparsers.add_parser("db-refresh-derived-snapshots", help="Rebuild transaction-derived factor snapshots.")
@@ -202,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "fetch":
         return _handle_fetch(args)
+    if args.command == "fetch-historical-floor-stats":
+        return _handle_fetch_historical_floor_stats(args)
     if args.command == "train":
         return _handle_train(args)
     if args.command == "predict":
@@ -228,8 +330,14 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_db_import_access_times(args)
     if args.command == "db-import-parks":
         return _handle_db_import_parks(args)
+    if args.command == "db-import-academy-counts":
+        return _handle_db_import_academy_counts(args)
+    if args.command == "db-import-healthcare-distances":
+        return _handle_db_import_healthcare_distances(args)
     if args.command == "db-feature-coverage":
         return _handle_db_feature_coverage(args)
+    if args.command == "model-diagnostics":
+        return _handle_model_diagnostics(args)
     if args.command == "db-clear-data":
         return _handle_db_clear_data(args)
     if args.command == "db-refresh-derived-snapshots":
@@ -296,8 +404,66 @@ def _handle_fetch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_fetch_historical_floor_stats(args: argparse.Namespace) -> int:
+    service_key = get_service_key()
+    city_codes = _parse_city_codes(args.city_codes)
+    end_month = args.end_month or current_yyyymm()
+    months = historical_months(args.start_month, end_month)
+    progress_every = max(1, int(args.progress_every))
+
+    def progress(event: dict[str, object]) -> None:
+        if event["stage"] == "month" and int(event["requests"]) % progress_every == 0:
+            _print_fetch_progress(
+                "과거 최고층 거래 조회",
+                requests=event["requests"],
+                city_code=event["city_code"],
+                district=event["district"],
+                deal_month=event["deal_month"],
+                rows=event["rows"],
+                complexes=event["complexes"],
+            )
+
+    stats = fetch_historical_floor_stats(
+        service_key=service_key,
+        city_codes=city_codes,
+        start_month=args.start_month,
+        end_month=end_month,
+        num_rows=args.num_rows,
+        sleep_seconds=args.sleep_seconds,
+        max_retries=args.max_retries,
+        retry_backoff_seconds=args.retry_backoff_seconds,
+        workers=args.workers,
+        progress=progress,
+    )
+    write_historical_floor_stats_csv(stats, args.output)
+    total_observations = sum(stat.observation_count for stat in stats)
+    _print_fetch_progress(
+        "과거 최고층 통계 생성 완료",
+        output=args.output,
+        complexes=len(stats),
+        observations=total_observations,
+    )
+    print(
+        json.dumps(
+            {
+                "output": args.output,
+                "city_codes": city_codes,
+                "start_month": args.start_month,
+                "end_month": end_month,
+                "months_count": len(months),
+                "complexes": len(stats),
+                "observations": total_observations,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def _handle_train(args: argparse.Namespace) -> int:
     started = time.perf_counter()
+    property_types = None
     if args.from_db:
         _print_train_progress("DB 로드 시작", city_code=args.city_code or "all")
         connection = get_mysql_connection()
@@ -306,6 +472,7 @@ def _handle_train(args: argparse.Namespace) -> int:
             connection,
             city_code=args.city_code,
             property_types=property_types,
+            require_complete_factors=not args.allow_missing_factors,
         )
         _print_train_progress("DB 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
     else:
@@ -313,26 +480,78 @@ def _handle_train(args: argparse.Namespace) -> int:
         transactions = read_transactions_csv(args.input)
         _print_train_progress("CSV 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
 
+    estimated_max_floors = None
+    if args.floor_stats:
+        _print_train_progress("최고층 통계 로드 시작", input=args.floor_stats, elapsed_s=_elapsed(started))
+        estimated_max_floors = read_estimated_max_floors_csv(args.floor_stats)
+        _print_train_progress("최고층 통계 로드 완료", complexes=len(estimated_max_floors), elapsed_s=_elapsed(started))
+
     model = train_hedonic_model(
         transactions,
-        alpha=args.alpha,
+        max_iter=args.max_iter,
+        learning_rate=args.learning_rate,
+        max_leaf_nodes=args.max_leaf_nodes,
+        min_samples_leaf=args.min_samples_leaf,
+        l2_regularization=args.l2_regularization,
+        random_state=args.random_state,
         min_apartment_count=args.min_apartment_count,
         validation_months=args.validation_months,
+        estimated_max_floors=estimated_max_floors,
+        global_calibration_shrinkage=args.global_calibration_shrinkage,
+        global_calibration_max_log_offset=args.global_calibration_max_log_offset,
         progress=lambda event: _print_model_progress(event, started),
     )
     _print_train_progress("모델 저장 시작", output=args.model_output, elapsed_s=_elapsed(started))
     save_model(model, args.model_output)
     _print_train_progress("모델 저장 완료", output=args.model_output, elapsed_s=_elapsed(started))
 
+    run_artifacts = None
+    if args.run_output_dir:
+        _print_train_progress("학습 run 기록 시작", output=args.run_output_dir, elapsed_s=_elapsed(started))
+        run_artifacts = write_training_run_artifacts(
+            model,
+            output_dir=args.run_output_dir,
+            metadata=RunMetadata(
+                data_source="mysql.model_training_features" if args.from_db else args.input,
+                city_code=args.city_code if args.from_db else None,
+                property_types=property_types,
+                complete_case_only=bool(args.from_db and not args.allow_missing_factors),
+                allow_missing_factors=bool(args.allow_missing_factors),
+                validation_months=args.validation_months,
+                model_type="HistGradientBoosting",
+                floor_stats_source=args.floor_stats,
+                hyperparameters={
+                    "max_iter": args.max_iter,
+                    "learning_rate": args.learning_rate,
+                    "max_leaf_nodes": args.max_leaf_nodes,
+                    "min_samples_leaf": args.min_samples_leaf,
+                    "l2_regularization": args.l2_regularization,
+                    "random_state": args.random_state,
+                    "global_calibration_shrinkage": args.global_calibration_shrinkage,
+                    "global_calibration_max_log_offset": args.global_calibration_max_log_offset,
+                },
+            ),
+        )
+        _print_train_progress("학습 run 기록 완료", output=args.run_output_dir, elapsed_s=_elapsed(started))
+
+    payload = {
+        "model_output": args.model_output,
+        "training_rows": model.training_rows,
+        "validation_rows": model.validation_rows,
+        "metrics": model.metrics,
+        "residuals_by_floor_band": model.residuals_by_floor_band,
+    }
+    if args.floor_stats:
+        payload["floor_stats"] = args.floor_stats
+        payload["floor_estimate_count"] = len(model.estimated_max_floors)
+    if run_artifacts is not None:
+        payload["run_output_dir"] = run_artifacts["run_output_dir"]
+        payload["run_manifest"] = run_artifacts["run_manifest"]
+        payload["run_artifacts"] = run_artifacts
+
     print(
         json.dumps(
-            {
-                "model_output": args.model_output,
-                "training_rows": model.training_rows,
-                "validation_rows": model.validation_rows,
-                "metrics": model.metrics,
-                "residuals_by_floor_band": model.residuals_by_floor_band,
-            },
+            payload,
             ensure_ascii=False,
             indent=2,
         )
@@ -359,7 +578,17 @@ def _print_model_progress(event: dict[str, object], started: float) -> None:
     elif stage == "features_validation":
         _print_train_progress("특성 생성", dataset="validation", rows=event["rows"], elapsed_s=_elapsed(started))
     elif stage == "fit":
-        _print_train_progress("sklearn Ridge 학습", training_rows=event["training_rows"], alpha=event["alpha"], elapsed_s=_elapsed(started))
+        _print_train_progress(
+            "sklearn HistGradientBoosting 학습",
+            training_rows=event["training_rows"],
+            max_iter=event["max_iter"],
+            learning_rate=event["learning_rate"],
+            max_leaf_nodes=event["max_leaf_nodes"],
+            min_samples_leaf=event["min_samples_leaf"],
+            l2_regularization=event["l2_regularization"],
+            random_state=event["random_state"],
+            elapsed_s=_elapsed(started),
+        )
     elif stage == "evaluate":
         _print_train_progress("평가 완료", rows=event["rows"], mape=f"{float(event['mape']):.4f}", r2_log=f"{float(event['r2_log']):.4f}", elapsed_s=_elapsed(started))
     elif stage == "residuals":
@@ -411,7 +640,13 @@ def _handle_predict(args: argparse.Namespace) -> int:
 
 
 def _handle_gui(args: argparse.Namespace) -> int:
-    run_gui_server(model_path=args.model, host=args.host, port=args.port)
+    run_gui_server(
+        model_path=args.model,
+        host=args.host,
+        port=args.port,
+        seoul_model_path=args.seoul_model,
+        busan_model_path=args.busan_model,
+    )
     return 0
 
 
@@ -544,9 +779,69 @@ def _handle_db_import_parks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_db_import_academy_counts(args: argparse.Namespace) -> int:
+    if args.provider != "kakao":
+        raise ValueError(f"unsupported geocoding provider: {args.provider}")
+    api_key = args.api_key or get_kakao_rest_api_key()
+    geocoder = KakaoGeocoder(api_key)
+    connection = get_mysql_connection()
+    result = import_academy_count_snapshots_csv(
+        connection,
+        args.primary_input,
+        seoul_csv_path=args.seoul_input,
+        busan_csv_path=args.busan_input,
+        geocoder=geocoder,
+        source_name=args.source_name,
+        radius_m=args.radius_m,
+        sleep_seconds=args.sleep_seconds,
+        geocode_cache_path=args.geocode_cache,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_db_import_healthcare_distances(args: argparse.Namespace) -> int:
+    connection = get_mysql_connection()
+    result = import_healthcare_distance_snapshots_csvs(
+        connection,
+        seoul_hospital_paths=args.seoul_hospital_input,
+        busan_hospital_paths=args.busan_hospital_input,
+        seoul_pharmacy_paths=args.seoul_pharmacy_input,
+        busan_pharmacy_paths=args.busan_pharmacy_input,
+        source_name=args.source_name,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _handle_db_feature_coverage(args: argparse.Namespace) -> int:
     connection = get_mysql_connection()
     result = generate_feature_coverage_report(connection, output_dir=args.output_dir)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _handle_model_diagnostics(args: argparse.Namespace) -> int:
+    model = load_model(args.model)
+    connection = get_mysql_connection()
+    try:
+        transactions = read_transactions_from_training_view(
+            connection,
+            city_code=args.city_code,
+            property_types=_parse_property_types(args.property_types) if args.property_types else None,
+        )
+    finally:
+        close = getattr(connection, "close", None)
+        if callable(close):
+            close()
+
+    result = generate_residual_diagnostics(
+        model,
+        transactions,
+        output_dir=args.output_dir,
+        validation_months=args.validation_months,
+        min_segment_count=args.min_segment_count,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

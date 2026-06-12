@@ -19,8 +19,7 @@ INSERT INTO property_condition_snapshots (
   source_name,
   exclusive_area_m2,
   representative_floor,
-  build_year,
-  building_age_years
+  build_year
 )
 SELECT
   complex_id,
@@ -28,8 +27,7 @@ SELECT
   'transactions_derived',
   ROUND(AVG(exclusive_area_m2), 3),
   ROUND(AVG(floor)),
-  MIN(build_year),
-  GREATEST(0, CAST(LEFT(deal_yyyymm, 4) AS SIGNED) - CAST(MIN(build_year) AS SIGNED))
+  MIN(build_year)
 FROM housing_transactions
 WHERE complex_id IS NOT NULL
 GROUP BY complex_id, deal_yyyymm
@@ -37,7 +35,6 @@ ON DUPLICATE KEY UPDATE
   exclusive_area_m2 = VALUES(exclusive_area_m2),
   representative_floor = VALUES(representative_floor),
   build_year = VALUES(build_year),
-  building_age_years = VALUES(building_age_years),
   updated_at = CURRENT_TIMESTAMP
 """
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from hedonic_house_price.complex_info import (
     ComplexBasicInfo,
+    UPSERT_PROPERTY_CONDITION_SQL,
     find_complex_basic_info_match,
     import_complex_property_conditions_csv,
     is_apartment_like_category,
@@ -386,10 +387,11 @@ class ComplexInfoTests(unittest.TestCase):
         self.assertEqual(result["matched_complexes"], 1)
         self.assertEqual(result["snapshot_rows"], 2)
         self.assertEqual(connection.commits, 1)
+        self.assertNotIn("building_age_years", UPSERT_PROPERTY_CONDITION_SQL)
         insert_params = connection.cursor_obj.params
         self.assertEqual(insert_params[0][:3], (10, "202505", "kapt_basic_info"))
-        self.assertEqual(insert_params[0][3:], (16, 2004, 21, 150, 1, 315, 2.1, 1))
-        self.assertEqual(insert_params[1][5], 22)
+        self.assertEqual(insert_params[0][3:], (16, 2004, 150, 1, 315, 2.1, 1))
+        self.assertEqual(insert_params[1][4], 2004)
 
 
 class FakeCursor:

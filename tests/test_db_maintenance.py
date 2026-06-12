@@ -68,9 +68,11 @@ class DbMaintenanceTests(unittest.TestCase):
         self.assertEqual(result["urban_competitiveness_rows"], 7)
         self.assertEqual(connection.commits, 1)
 
-    def test_property_condition_sql_uses_signed_age_subtraction(self):
-        self.assertIn("CAST(LEFT(deal_yyyymm, 4) AS SIGNED)", PROPERTY_CONDITION_DERIVED_SQL)
-        self.assertIn("CAST(MIN(build_year) AS SIGNED)", PROPERTY_CONDITION_DERIVED_SQL)
+    def test_property_condition_sql_excludes_building_age_years(self):
+        self.assertIn("MIN(build_year)", PROPERTY_CONDITION_DERIVED_SQL)
+        self.assertNotIn("building_age_years", PROPERTY_CONDITION_DERIVED_SQL)
+        self.assertNotIn("CAST(LEFT(deal_yyyymm, 4) AS SIGNED)", PROPERTY_CONDITION_DERIVED_SQL)
+        self.assertNotIn("CAST(MIN(build_year) AS SIGNED)", PROPERTY_CONDITION_DERIVED_SQL)
 
 
 if __name__ == "__main__":

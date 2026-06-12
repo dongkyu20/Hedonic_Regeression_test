@@ -81,7 +81,6 @@ CREATE TABLE IF NOT EXISTS property_condition_snapshots (
   exclusive_area_m2 DECIMAL(10, 3) NULL,
   representative_floor INT NULL,
   build_year SMALLINT UNSIGNED NULL,
-  building_age_years SMALLINT UNSIGNED NULL,
   household_count INT UNSIGNED NULL,
   building_count INT UNSIGNED NULL,
   total_parking_spaces INT UNSIGNED NULL,
@@ -195,6 +194,7 @@ SELECT
   t.build_year,
   t.price_manwon,
   t.price_krw,
+  pcs_kapt.representative_floor AS kapt_max_floor,
   COALESCE(pcs_kapt.household_count, pcs_tx.household_count) AS household_count,
   COALESCE(pcs_kapt.building_count, pcs_tx.building_count) AS building_count,
   COALESCE(pcs_kapt.total_parking_spaces, pcs_tx.total_parking_spaces) AS total_parking_spaces,
@@ -215,9 +215,9 @@ SELECT
   COALESCE(les_school_complex.nearest_elementary_school_distance_m, les_school_region.nearest_elementary_school_distance_m) AS nearest_elementary_school_distance_m,
   COALESCE(les_school_complex.nearest_middle_school_distance_m, les_school_region.nearest_middle_school_distance_m) AS nearest_middle_school_distance_m,
   COALESCE(les_school_complex.school_count_radius, les_school_region.school_count_radius) AS school_count_radius,
-  COALESCE(les_school_complex.academy_count_radius, les_school_region.academy_count_radius) AS academy_count_radius,
-  COALESCE(les_school_complex.nearest_hospital_distance_m, les_school_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
-  COALESCE(les_school_complex.nearest_pharmacy_distance_m, les_school_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
+  COALESCE(les_academy_complex.academy_count_radius, les_academy_region.academy_count_radius) AS academy_count_radius,
+  COALESCE(les_healthcare_complex.nearest_hospital_distance_m, les_healthcare_region.nearest_hospital_distance_m) AS nearest_hospital_distance_m,
+  COALESCE(les_healthcare_complex.nearest_pharmacy_distance_m, les_healthcare_region.nearest_pharmacy_distance_m) AS nearest_pharmacy_distance_m,
   COALESCE(les_park_complex.nearest_park_distance_m, les_park_region.nearest_park_distance_m) AS nearest_park_distance_m,
   COALESCE(les_park_complex.park_area_total_m2_radius, les_park_region.park_area_total_m2_radius) AS park_area_total_m2_radius,
   ucs.population_count,
@@ -253,6 +253,24 @@ LEFT JOIN living_environment_snapshots les_school_region
  AND les_school_region.complex_id IS NULL
  AND les_school_region.snapshot_yyyymm = t.deal_yyyymm
  AND les_school_region.source_name = 'school_location'
+LEFT JOIN living_environment_snapshots les_academy_complex
+  ON les_academy_complex.complex_id = t.complex_id
+ AND les_academy_complex.snapshot_yyyymm = t.deal_yyyymm
+ AND les_academy_complex.source_name = 'academy_nearby_complex_2604'
+LEFT JOIN living_environment_snapshots les_academy_region
+  ON les_academy_region.region_id = t.region_id
+ AND les_academy_region.complex_id IS NULL
+ AND les_academy_region.snapshot_yyyymm = t.deal_yyyymm
+ AND les_academy_region.source_name = 'academy_nearby_complex_2604'
+LEFT JOIN living_environment_snapshots les_healthcare_complex
+  ON les_healthcare_complex.complex_id = t.complex_id
+ AND les_healthcare_complex.snapshot_yyyymm = t.deal_yyyymm
+ AND les_healthcare_complex.source_name = 'healthcare_facility'
+LEFT JOIN living_environment_snapshots les_healthcare_region
+  ON les_healthcare_region.region_id = t.region_id
+ AND les_healthcare_region.complex_id IS NULL
+ AND les_healthcare_region.snapshot_yyyymm = t.deal_yyyymm
+ AND les_healthcare_region.source_name = 'healthcare_facility'
 LEFT JOIN living_environment_snapshots les_park_complex
   ON les_park_complex.complex_id = t.complex_id
  AND les_park_complex.snapshot_yyyymm = t.deal_yyyymm

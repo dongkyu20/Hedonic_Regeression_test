@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 
 @dataclass
-class RidgePipeline:
-    alpha: float = 1.0
+class HistGradientBoostingPipeline:
+    max_iter: int = 300
+    learning_rate: float = 0.06
+    max_leaf_nodes: int = 31
+    min_samples_leaf: int = 30
+    l2_regularization: float = 0.0
+    random_state: int = 42
     estimator: Pipeline | None = None
     target_name: str = "target_log_price"
 
-    def fit(self, rows: list[dict[str, object]], target_name: str = "target_log_price") -> "RidgePipeline":
+    def fit(self, rows: list[dict[str, object]], target_name: str = "target_log_price") -> "HistGradientBoostingPipeline":
         if not rows:
             raise ValueError("cannot fit model on empty rows")
 
@@ -23,9 +30,18 @@ class RidgePipeline:
         y = [float(row[target_name]) for row in rows]
         self.estimator = Pipeline(
             [
-                ("vectorizer", DictVectorizer(sparse=True)),
-                ("scaler", StandardScaler(with_mean=False)),
-                ("ridge", Ridge(alpha=self.alpha, solver="lsqr", fit_intercept=False)),
+                ("vectorizer", DictVectorizer(sparse=False)),
+                (
+                    "hist_gradient_boosting",
+                    HistGradientBoostingRegressor(
+                        max_iter=self.max_iter,
+                        learning_rate=self.learning_rate,
+                        max_leaf_nodes=self.max_leaf_nodes,
+                        min_samples_leaf=self.min_samples_leaf,
+                        l2_regularization=self.l2_regularization,
+                        random_state=self.random_state,
+                    ),
+                ),
             ]
         )
         self.estimator.fit(x_rows, y)
@@ -45,3 +61,8 @@ def _without_target(row: dict[str, object], target_name: str) -> dict[str, objec
     features = {key: value for key, value in row.items() if key != target_name}
     features["__bias__"] = 1.0
     return features
+
+
+RandomForestPipeline = HistGradientBoostingPipeline
+ElasticNetPipeline = HistGradientBoostingPipeline
+RidgePipeline = HistGradientBoostingPipeline

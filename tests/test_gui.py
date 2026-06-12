@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from hedonic_house_price.gui import build_prediction_input, render_index_html
+from hedonic_house_price.gui import CityModelRouter, build_prediction_input, render_index_html
 from hedonic_house_price.modeling import predict_price, train_hedonic_model
 from hedonic_house_price.transactions import Transaction
 
@@ -24,14 +24,27 @@ def sample_model():
                 price_manwon=90_000 + idx * 1_000,
             )
         )
-    return train_hedonic_model(transactions, alpha=0.1, min_apartment_count=2, validation_months=2)
+    return train_hedonic_model(
+        transactions,
+        max_iter=20,
+        random_state=42,
+        min_apartment_count=2,
+        validation_months=2,
+    )
 
 
 class GuiTests(unittest.TestCase):
     def test_render_index_html_contains_prediction_form_fields(self):
-        html = render_index_html(model_path="artifacts/hedonic_model.pkl")
+        html = render_index_html(
+            model_label="서울/부산 개선 모델",
+            model_paths={
+                "seoul": "artifacts/seoul.pkl",
+                "busan": "artifacts/busan.pkl",
+            },
+        )
 
         self.assertIn("id=\"prediction-form\"", html)
+        self.assertIn("name=\"city_code\"", html)
         self.assertIn("name=\"property_type\"", html)
         self.assertIn("name=\"district\"", html)
         self.assertIn("name=\"deal_year\"", html)
@@ -41,13 +54,34 @@ class GuiTests(unittest.TestCase):
         self.assertIn("name=\"floor\"", html)
         self.assertIn("name=\"build_year\"", html)
         self.assertNotIn("name=\"apartment_name\"", html)
-        self.assertIn("오피스텔", html)
-        self.assertIn("연립·다세대", html)
         self.assertIn("강남구", html)
+        self.assertIn("해운대구", html)
+        self.assertIn("artifacts/seoul.pkl", html)
+        self.assertIn("artifacts/busan.pkl", html)
+
+    def test_render_index_html_uses_compact_apartment_only_layout(self):
+        html = render_index_html(
+            model_label="서울/부산 개선 모델",
+            model_paths={
+                "seoul": "artifacts/seoul.pkl",
+                "busan": "artifacts/busan.pkl",
+            },
+        )
+
+        self.assertIn("서울 개선 모델 · 부산 개선 모델", html)
+        self.assertIn('type="hidden" name="property_type" value="apartment"', html)
+        self.assertIn('value="강남구" selected', html)
+        self.assertIn("overflow-wrap: anywhere", html)
+        self.assertNotIn("white-space: nowrap", html)
+        self.assertNotIn("<option value=\"officetel\">", html)
+        self.assertNotIn("<option value=\"rowhouse\">", html)
+        self.assertNotIn("name=\"house_type\"", html)
+        self.assertNotIn("name=\"land_area\"", html)
 
     def test_build_prediction_input_coerces_form_payload_and_infers_lawd_code(self):
         prediction_input = build_prediction_input(
             {
+                "city_code": "seoul",
                 "district": "강남구",
                 "property_type": "rowhouse",
                 "deal_year": "2026",
@@ -65,6 +99,60 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(prediction_input.deal_day, 15)
         self.assertEqual(prediction_input.exclusive_area_m2, 84.95)
         self.assertEqual(prediction_input.floor, 15)
+
+    def test_build_prediction_input_supports_busan_city_model_payload(self):
+        prediction_input = build_prediction_input(
+            {
+                "city_code": "busan",
+                "district": "해운대구",
+                "property_type": "apartment",
+                "deal_year": "2026",
+                "deal_month": "6",
+                "legal_dong": "우동",
+                "area": "84.95",
+                "floor": "15",
+                "build_year": "2005",
+            }
+        )
+
+        self.assertEqual(prediction_input.lawd_cd, "26350")
+        self.assertEqual(prediction_input.district, "해운대구")
+
+    def test_city_model_router_uses_lawd_code_to_select_model(self):
+        seoul_model = object()
+        busan_model = object()
+        router = CityModelRouter(
+            models={"seoul": seoul_model, "busan": busan_model},
+            model_paths={"seoul": "artifacts/seoul.pkl", "busan": "artifacts/busan.pkl"},
+        )
+
+        seoul_input = build_prediction_input(
+            {
+                "city_code": "seoul",
+                "district": "강남구",
+                "deal_year": "2026",
+                "deal_month": "6",
+                "legal_dong": "역삼동",
+                "area": "84.95",
+                "floor": "15",
+                "build_year": "2005",
+            }
+        )
+        busan_input = build_prediction_input(
+            {
+                "city_code": "busan",
+                "district": "해운대구",
+                "deal_year": "2026",
+                "deal_month": "6",
+                "legal_dong": "우동",
+                "area": "84.95",
+                "floor": "15",
+                "build_year": "2005",
+            }
+        )
+
+        self.assertIs(router.model_for(seoul_input), seoul_model)
+        self.assertIs(router.model_for(busan_input), busan_model)
 
     def test_build_prediction_input_reports_missing_required_field(self):
         with self.assertRaisesRegex(ValueError, "legal_dong"):

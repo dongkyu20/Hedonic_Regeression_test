@@ -89,17 +89,15 @@ INSERT INTO property_condition_snapshots (
   source_name,
   representative_floor,
   build_year,
-  building_age_years,
   household_count,
   building_count,
   total_parking_spaces,
   parking_spaces_per_household,
   has_community_facilities
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON DUPLICATE KEY UPDATE
   representative_floor = VALUES(representative_floor),
   build_year = VALUES(build_year),
-  building_age_years = VALUES(building_age_years),
   household_count = VALUES(household_count),
   building_count = VALUES(building_count),
   total_parking_spaces = VALUES(total_parking_spaces),
@@ -668,7 +666,6 @@ def _property_condition_params(
         source_name,
         info.max_floor,
         build_year,
-        _building_age_years(snapshot_yyyymm, build_year),
         household_count,
         info.building_count,
         total_parking_spaces,
@@ -683,15 +680,6 @@ def _approval_year(value: str) -> int | None:
         return None
     year = int(match.group(1))
     return year if year > 0 else None
-
-
-def _building_age_years(snapshot_yyyymm: str, build_year: int | None) -> int | None:
-    if build_year is None:
-        return None
-    match = re.match(r"^(\d{4})", snapshot_yyyymm or "")
-    if not match:
-        return None
-    return max(0, int(match.group(1)) - build_year)
 
 
 def _community_facility_flag(info: ComplexBasicInfo) -> int | None:

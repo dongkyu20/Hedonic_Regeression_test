@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import math
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .features import make_feature_row, make_feature_rows
-from .linear_model import RidgePipeline
+from .features import estimate_complex_max_floors, make_feature_row, make_feature_rows
+from .linear_model import HistGradientBoostingPipeline
 from .transactions import Transaction, normalize_property_type
+
+
+TARGET_ENCODING_COLUMNS = ("district", "legal_dong")
+TARGET_ENCODING_SMOOTHING = 20.0
 
 
 @dataclass(frozen=True)
@@ -47,20 +51,43 @@ class PredictionInput:
 
 
 @dataclass
+class TargetEncodingMap:
+    global_mean: float = 0.0
+    smoothing: float = TARGET_ENCODING_SMOOTHING
+    values: dict[str, dict[str, float]] = field(default_factory=dict)
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+
+
+@dataclass
 class TrainedModel:
-    pipeline: RidgePipeline
+    pipeline: HistGradientBoostingPipeline
     first_month: str
     common_apartments: set[str]
     metrics: dict[str, float]
     residuals_by_floor_band: dict[str, dict[str, float]]
     training_rows: int
     validation_rows: int
+    estimated_max_floors: dict[tuple[str, str, str, str], int] = field(default_factory=dict)
+    dropped_features: set[str] = field(default_factory=set)
+    target_encodings: TargetEncodingMap = field(default_factory=TargetEncodingMap)
+    global_calibration_log_offset: float = 0.0
+    global_calibration_raw_log_offset: float = 0.0
+    global_calibration_shrinkage: float = 0.0
+    global_calibration_max_log_offset: float = 0.0
 
 def train_hedonic_model(
     transactions: list[Transaction],
-    alpha: float = 1.0,
+    max_iter: int = 300,
+    learning_rate: float = 0.06,
+    max_leaf_nodes: int = 31,
+    min_samples_leaf: int = 30,
+    l2_regularization: float = 0.0,
+    random_state: int = 42,
     min_apartment_count: int = 5,
     validation_months: int = 6,
+    estimated_max_floors: dict[tuple[str, str, str, str], int] | None = None,
+    global_calibration_shrinkage: float = 0.0,
+    global_calibration_max_log_offset: float = 0.0,
     progress: Callable[[dict[str, object]], None] | None = None,
 ) -> TrainedModel:
     usable = sorted(transactions, key=lambda transaction: transaction.deal_ymd)
@@ -80,34 +107,103 @@ def train_hedonic_model(
 
     common_apartments: set[str] = set()
     _report(progress, "exclude_apartment_name")
-    dropped_feature_names = _constant_optional_feature_names(train_transactions)
+    model_estimated_max_floors = _merge_complex_floor_estimates(
+        estimate_complex_max_floors(train_transactions),
+        estimated_max_floors,
+    )
 
+    raw_train_rows = make_feature_rows(
+        train_transactions,
+        first_month=first_month,
+        estimated_max_floors=model_estimated_max_floors,
+    )
+    target_encodings = fit_target_encodings(raw_train_rows)
+    raw_train_rows = apply_target_encodings(raw_train_rows, target_encodings)
+    dropped_feature_names = _constant_feature_names(raw_train_rows)
     train_rows = _drop_features(
-        make_feature_rows(
-            train_transactions,
-            first_month=first_month,
-        ),
+        raw_train_rows,
         dropped_feature_names,
     )
     _report(progress, "features_train", rows=len(train_rows))
 
+    raw_validation_rows = make_feature_rows(
+        validation_transactions,
+        first_month=first_month,
+        estimated_max_floors=model_estimated_max_floors,
+    )
+    raw_validation_rows = apply_target_encodings(raw_validation_rows, target_encodings)
     validation_rows = _drop_features(
-        make_feature_rows(
-            validation_transactions,
-            first_month=first_month,
-        ),
+        raw_validation_rows,
         dropped_feature_names,
     )
     _report(progress, "features_validation", rows=len(validation_rows))
 
-    pipeline = RidgePipeline(alpha=alpha).fit(train_rows)
-    _report(progress, "fit", training_rows=len(train_rows), alpha=alpha)
+    pipeline = HistGradientBoostingPipeline(
+        max_iter=max_iter,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+        min_samples_leaf=min_samples_leaf,
+        l2_regularization=l2_regularization,
+        random_state=random_state,
+    ).fit(train_rows)
+    _report(
+        progress,
+        "fit",
+        training_rows=len(train_rows),
+        max_iter=max_iter,
+        learning_rate=learning_rate,
+        max_leaf_nodes=max_leaf_nodes,
+        min_samples_leaf=min_samples_leaf,
+        l2_regularization=l2_regularization,
+        random_state=random_state,
+    )
 
-    metrics = evaluate_rows(pipeline, validation_rows or train_rows)
+    evaluation_rows = validation_rows or train_rows
+    uncalibrated_metrics = evaluate_rows(pipeline, evaluation_rows)
+    calibration_log_offset = global_calibration_log_offset(
+        pipeline,
+        evaluation_rows,
+        shrinkage=global_calibration_shrinkage,
+        max_abs_log_offset=global_calibration_max_log_offset,
+    )
+    raw_calibration_log_offset = global_calibration_log_offset(
+        pipeline,
+        evaluation_rows,
+        shrinkage=1.0,
+        max_abs_log_offset=0.0,
+    )
+    metrics = evaluate_rows(pipeline, evaluation_rows, log_offset=calibration_log_offset)
+    if calibration_log_offset:
+        metrics.update(
+            {
+                "uncalibrated_mae_krw": uncalibrated_metrics["mae_krw"],
+                "uncalibrated_rmse_krw": uncalibrated_metrics["rmse_krw"],
+                "uncalibrated_mape": uncalibrated_metrics["mape"],
+                "uncalibrated_r2_log": uncalibrated_metrics["r2_log"],
+            }
+        )
+    metrics["global_calibration_raw_log_offset"] = raw_calibration_log_offset
+    metrics["global_calibration_log_offset"] = calibration_log_offset
+    metrics["global_calibration_multiplier"] = math.exp(calibration_log_offset)
     _report(progress, "evaluate", rows=len(validation_rows or train_rows), mape=metrics["mape"], r2_log=metrics["r2_log"])
 
-    all_rows = _drop_features(make_feature_rows(usable, first_month=first_month), dropped_feature_names)
-    residuals_by_floor_band = residuals_by_group(pipeline, all_rows, group_name="floor_band")
+    all_rows = _drop_features(
+        apply_target_encodings(
+            make_feature_rows(
+                usable,
+                first_month=first_month,
+                estimated_max_floors=model_estimated_max_floors,
+            ),
+            target_encodings,
+        ),
+        dropped_feature_names,
+    )
+    residuals_by_floor_band = residuals_by_group(
+        pipeline,
+        all_rows,
+        group_name="floor_band",
+        log_offset=calibration_log_offset,
+    )
     _report(progress, "residuals", rows=len(all_rows), floor_bands=len(residuals_by_floor_band))
 
     model = TrainedModel(
@@ -118,17 +214,48 @@ def train_hedonic_model(
         residuals_by_floor_band=residuals_by_floor_band,
         training_rows=len(train_rows),
         validation_rows=len(validation_rows),
+        estimated_max_floors=model_estimated_max_floors,
+        dropped_features=dropped_feature_names,
+        target_encodings=target_encodings,
+        global_calibration_log_offset=calibration_log_offset,
+        global_calibration_raw_log_offset=raw_calibration_log_offset,
+        global_calibration_shrinkage=global_calibration_shrinkage,
+        global_calibration_max_log_offset=global_calibration_max_log_offset,
     )
     _report(progress, "complete", training_rows=model.training_rows, validation_rows=model.validation_rows)
     return model
 
 
+def _merge_complex_floor_estimates(
+    training_estimates: dict[tuple[str, str, str, str], int],
+    external_estimates: dict[tuple[str, str, str, str], int] | None,
+) -> dict[tuple[str, str, str, str], int]:
+    merged = dict(training_estimates)
+    if not external_estimates:
+        return merged
+    for key, floor in external_estimates.items():
+        normalized_floor = max(1, int(floor))
+        merged[key] = max(normalized_floor, merged.get(key, normalized_floor))
+    return merged
+
+
 def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dict[str, int | float]:
-    feature_row = make_feature_row(
-        prediction_input.to_transaction(),
-        first_month=model.first_month,
+    feature_row = _drop_features(
+        [
+            apply_target_encoding(
+                make_feature_row(
+                    prediction_input.to_transaction(),
+                    first_month=model.first_month,
+                    estimated_max_floors=getattr(model, "estimated_max_floors", {}),
+                ),
+                getattr(model, "target_encodings", TargetEncodingMap()),
+            )
+        ],
+        getattr(model, "dropped_features", set()),
     )
-    predicted_log_price = model.pipeline.predict_one(feature_row)
+    predicted_log_price = model.pipeline.predict_one(feature_row[0]) + float(
+        getattr(model, "global_calibration_log_offset", 0.0)
+    )
     price_krw = int(round(math.exp(predicted_log_price)))
     return {
         "log_price": predicted_log_price,
@@ -137,12 +264,94 @@ def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dic
     }
 
 
-def evaluate_rows(pipeline: RidgePipeline, rows: list[dict[str, object]]) -> dict[str, float]:
+def fit_target_encodings(
+    rows: list[dict[str, object]],
+    *,
+    columns: tuple[str, ...] = TARGET_ENCODING_COLUMNS,
+    smoothing: float = TARGET_ENCODING_SMOOTHING,
+) -> TargetEncodingMap:
+    target_values = [float(row["target_log_price"]) for row in rows if "target_log_price" in row]
+    global_mean = sum(target_values) / len(target_values) if target_values else 0.0
+    values: dict[str, dict[str, float]] = {}
+    counts: dict[str, dict[str, int]] = {}
+
+    for column in columns:
+        grouped: dict[str, list[float]] = {}
+        for row in rows:
+            if column not in row or "target_log_price" not in row:
+                continue
+            grouped.setdefault(str(row[column]), []).append(float(row["target_log_price"]))
+
+        values[column] = {
+            category: (sum(category_values) + smoothing * global_mean) / (len(category_values) + smoothing)
+            for category, category_values in grouped.items()
+        }
+        counts[column] = {
+            category: len(category_values)
+            for category, category_values in grouped.items()
+        }
+
+    return TargetEncodingMap(
+        global_mean=global_mean,
+        smoothing=smoothing,
+        values=values,
+        counts=counts,
+    )
+
+
+def apply_target_encodings(
+    rows: list[dict[str, object]],
+    target_encodings: TargetEncodingMap,
+) -> list[dict[str, object]]:
+    return [apply_target_encoding(row, target_encodings) for row in rows]
+
+
+def apply_target_encoding(
+    row: dict[str, object],
+    target_encodings: TargetEncodingMap,
+) -> dict[str, object]:
+    encoded_row = dict(row)
+    for column in TARGET_ENCODING_COLUMNS:
+        category = str(row.get(column, ""))
+        value = target_encodings.values.get(column, {}).get(category, target_encodings.global_mean)
+        count = target_encodings.counts.get(column, {}).get(category, 0)
+        encoded_row[f"{column}_target_log_price_smooth"] = value
+        encoded_row[f"{column}_target_log_price_delta"] = value - target_encodings.global_mean
+        encoded_row[f"{column}_target_count_log1p"] = math.log1p(count)
+    return encoded_row
+
+
+def global_calibration_log_offset(
+    pipeline: HistGradientBoostingPipeline,
+    rows: list[dict[str, object]],
+    *,
+    shrinkage: float,
+    max_abs_log_offset: float,
+) -> float:
+    if not rows or shrinkage <= 0:
+        return 0.0
+
+    actual_log = [float(row["target_log_price"]) for row in rows]
+    predicted_log = pipeline.predict(rows)
+    raw_offset = sum(actual - predicted for actual, predicted in zip(actual_log, predicted_log)) / len(rows)
+    shrunken_offset = raw_offset * min(1.0, max(0.0, shrinkage))
+    if max_abs_log_offset <= 0:
+        return shrunken_offset
+    cap = abs(max_abs_log_offset)
+    return max(-cap, min(cap, shrunken_offset))
+
+
+def evaluate_rows(
+    pipeline: HistGradientBoostingPipeline,
+    rows: list[dict[str, object]],
+    *,
+    log_offset: float = 0.0,
+) -> dict[str, float]:
     if not rows:
         raise ValueError("cannot evaluate empty rows")
 
     actual_log = [float(row["target_log_price"]) for row in rows]
-    predicted_log = pipeline.predict(rows)
+    predicted_log = [value + log_offset for value in pipeline.predict(rows)]
     actual_krw = [math.exp(value) for value in actual_log]
     predicted_krw = [math.exp(value) for value in predicted_log]
     errors = [actual - predicted for actual, predicted in zip(actual_krw, predicted_krw)]
@@ -165,15 +374,17 @@ def evaluate_rows(pipeline: RidgePipeline, rows: list[dict[str, object]]) -> dic
 
 
 def residuals_by_group(
-    pipeline: RidgePipeline,
+    pipeline: HistGradientBoostingPipeline,
     rows: list[dict[str, object]],
     group_name: str,
+    *,
+    log_offset: float = 0.0,
 ) -> dict[str, dict[str, float]]:
     predictions = pipeline.predict(rows)
     grouped: dict[str, list[float]] = {}
     for row, predicted_log in zip(rows, predictions):
         actual_krw = math.exp(float(row["target_log_price"]))
-        predicted_krw = math.exp(predicted_log)
+        predicted_krw = math.exp(predicted_log + log_offset)
         group = str(row[group_name])
         grouped.setdefault(group, []).append(actual_krw - predicted_krw)
 
@@ -227,27 +438,17 @@ def _chronological_split(
     return transactions[:cutoff], transactions[cutoff:]
 
 
-def _constant_optional_feature_names(transactions: list[Transaction]) -> set[str]:
-    if not transactions:
+def _constant_feature_names(rows: list[dict[str, object]]) -> set[str]:
+    if not rows:
         return set()
 
     dropped: set[str] = set()
-    property_types = {transaction.property_type for transaction in transactions}
-    if len(property_types) <= 1:
-        dropped.add("property_type")
-
-    house_types = {transaction.house_type or "unknown" for transaction in transactions}
-    if len(house_types) <= 1:
-        dropped.add("house_type")
-
-    land_area_flags = {
-        1 if transaction.land_area_m2 is not None and transaction.land_area_m2 > 0 else 0
-        for transaction in transactions
-    }
-    if len(land_area_flags) <= 1:
-        dropped.add("has_land_area")
-    if land_area_flags == {0}:
-        dropped.add("log_land_area_m2")
+    feature_names = set().union(*(row.keys() for row in rows))
+    feature_names.discard("target_log_price")
+    for feature_name in feature_names:
+        values = {row.get(feature_name) for row in rows}
+        if len(values) <= 1:
+            dropped.add(feature_name)
 
     return dropped
 

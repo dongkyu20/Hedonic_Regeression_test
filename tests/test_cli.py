@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hedonic_house_price.cli import build_parser, main
+from hedonic_house_price.gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH
+from hedonic_house_price.historical_floors import HistoricalFloorStat
 from hedonic_house_price.transactions import Transaction, write_transactions_csv
 
 
@@ -103,6 +105,95 @@ class CliTests(unittest.TestCase):
         self.assertEqual(call_kwargs["district_codes"]["부산광역시 해운대구"], "26350")
         self.assertIn('"city_codes"', stdout.getvalue())
 
+    def test_fetch_historical_floor_stats_command_parses_options(self):
+        args = build_parser().parse_args(
+            [
+                "fetch-historical-floor-stats",
+                "--city-codes",
+                "seoul,busan",
+                "--start-month",
+                "201001",
+                "--end-month",
+                "202606",
+                "--output",
+                "data/floor_stats.csv",
+                "--sleep-seconds",
+                "0.05",
+                "--max-retries",
+                "3",
+                "--workers",
+                "8",
+                "--retry-backoff-seconds",
+                "60",
+            ]
+        )
+
+        self.assertEqual(args.command, "fetch-historical-floor-stats")
+        self.assertEqual(args.city_codes, "seoul,busan")
+        self.assertEqual(args.start_month, "201001")
+        self.assertEqual(args.end_month, "202606")
+        self.assertEqual(args.output, "data/floor_stats.csv")
+        self.assertEqual(args.sleep_seconds, 0.05)
+        self.assertEqual(args.max_retries, 3)
+        self.assertEqual(args.workers, 8)
+        self.assertEqual(args.retry_backoff_seconds, 60)
+
+    def test_fetch_historical_floor_stats_command_writes_csv(self):
+        stat = HistoricalFloorStat(
+            city_code="seoul",
+            property_type="apartment",
+            district="강남구",
+            lawd_cd="11680",
+            legal_dong="역삼동",
+            building_name="테스트아파트",
+            observed_max_floor=21,
+            estimated_max_floor=21,
+            observation_count=12,
+            first_observed_yyyymm="201001",
+            last_observed_yyyymm="202606",
+            min_build_year=2001,
+            max_build_year=2005,
+            confidence="medium",
+        )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "historical_floor_stats.csv"
+            with (
+                patch("hedonic_house_price.cli.get_service_key", return_value="service-key"),
+                patch("hedonic_house_price.cli.fetch_historical_floor_stats", return_value=[stat]) as fetch_mock,
+                redirect_stderr(stderr),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main(
+                    [
+                        "fetch-historical-floor-stats",
+                        "--city-codes",
+                        "seoul,busan",
+                        "--start-month",
+                        "201001",
+                        "--end-month",
+                        "202606",
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(output_path.exists())
+            self.assertIn("테스트아파트", output_path.read_text(encoding="utf-8"))
+            fetch_mock.assert_called_once()
+            call_kwargs = fetch_mock.call_args.kwargs
+            self.assertEqual(call_kwargs["service_key"], "service-key")
+            self.assertEqual(call_kwargs["city_codes"], ["seoul", "busan"])
+            self.assertEqual(call_kwargs["start_month"], "201001")
+            self.assertEqual(call_kwargs["end_month"], "202606")
+            self.assertEqual(call_kwargs["workers"], 1)
+            self.assertEqual(call_kwargs["retry_backoff_seconds"], 30)
+            self.assertIn('"complexes": 1', stdout.getvalue())
+            self.assertIn("[fetch] 과거 최고층 통계 생성 완료", stderr.getvalue())
+
     def test_train_command_parses_model_options(self):
         args = build_parser().parse_args(
             [
@@ -111,28 +202,103 @@ class CliTests(unittest.TestCase):
                 "data/input.csv",
                 "--model-output",
                 "artifacts/model.json",
-                "--alpha",
+                "--max-iter",
+                "25",
+                "--learning-rate",
+                "0.04",
+                "--max-leaf-nodes",
+                "15",
+                "--min-samples-leaf",
+                "3",
+                "--l2-regularization",
+                "0.2",
+                "--random-state",
+                "17",
+                "--floor-stats",
+                "data/floor_stats.csv",
+                "--global-calibration-shrinkage",
                 "0.25",
+                "--global-calibration-max-log-offset",
+                "0.01",
             ]
         )
 
         self.assertEqual(args.command, "train")
         self.assertEqual(args.input, "data/input.csv")
         self.assertEqual(args.model_output, "artifacts/model.json")
-        self.assertEqual(args.alpha, 0.25)
+        self.assertEqual(args.max_iter, 25)
+        self.assertEqual(args.learning_rate, 0.04)
+        self.assertEqual(args.max_leaf_nodes, 15)
+        self.assertEqual(args.min_samples_leaf, 3)
+        self.assertEqual(args.l2_regularization, 0.2)
+        self.assertEqual(args.random_state, 17)
+        self.assertEqual(args.floor_stats, "data/floor_stats.csv")
+        self.assertEqual(args.global_calibration_shrinkage, 0.25)
+        self.assertEqual(args.global_calibration_max_log_offset, 0.01)
+
+    def test_train_command_parses_run_output_dir(self):
+        args = build_parser().parse_args(
+            [
+                "train",
+                "--run-output-dir",
+                "artifacts/training_runs/test_run",
+            ]
+        )
+
+        self.assertEqual(args.run_output_dir, "artifacts/training_runs/test_run")
 
     def test_train_command_defaults_to_pickle_model_artifact(self):
         args = build_parser().parse_args(["train"])
 
         self.assertEqual(args.model_output, "artifacts/hedonic_model.pkl")
+        self.assertEqual(args.max_iter, 300)
+        self.assertEqual(args.learning_rate, 0.06)
+        self.assertEqual(args.max_leaf_nodes, 31)
+        self.assertEqual(args.min_samples_leaf, 30)
+        self.assertEqual(args.l2_regularization, 0.0)
+        self.assertEqual(args.random_state, 42)
 
     def test_gui_command_parses_local_server_options(self):
         args = build_parser().parse_args(["gui", "--model", "artifacts/model.pkl", "--port", "8123"])
 
         self.assertEqual(args.command, "gui")
         self.assertEqual(args.model, "artifacts/model.pkl")
+        self.assertEqual(args.seoul_model, DEFAULT_SEOUL_MODEL_PATH)
+        self.assertEqual(args.busan_model, DEFAULT_BUSAN_MODEL_PATH)
         self.assertEqual(args.host, "127.0.0.1")
         self.assertEqual(args.port, 8123)
+
+    def test_gui_command_defaults_to_improved_city_models(self):
+        args = build_parser().parse_args(["gui"])
+
+        self.assertIsNone(args.model)
+        self.assertEqual(args.seoul_model, DEFAULT_SEOUL_MODEL_PATH)
+        self.assertEqual(args.busan_model, DEFAULT_BUSAN_MODEL_PATH)
+
+    def test_gui_command_starts_city_model_server_with_selected_models(self):
+        with patch("hedonic_house_price.cli.run_gui_server") as run_gui_server:
+            exit_code = main(
+                [
+                    "gui",
+                    "--seoul-model",
+                    "artifacts/seoul.pkl",
+                    "--busan-model",
+                    "artifacts/busan.pkl",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8123",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        run_gui_server.assert_called_once_with(
+            model_path=None,
+            host="0.0.0.0",
+            port=8123,
+            seoul_model_path="artifacts/seoul.pkl",
+            busan_model_path="artifacts/busan.pkl",
+        )
 
     def test_db_init_command_parses_schema_and_seed_options(self):
         args = build_parser().parse_args(
@@ -296,6 +462,57 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.source_name, "park_standard_data")
         self.assertEqual(args.radius_m, 750)
 
+    def test_db_import_academy_counts_command_parses_inputs(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-academy-counts",
+                "--primary-input",
+                "data/academy_by_complex.csv",
+                "--seoul-input",
+                "data/seoul_academies.csv",
+                "--busan-input",
+                "data/busan_academies.csv",
+                "--radius-m",
+                "500",
+                "--sleep-seconds",
+                "0",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-academy-counts")
+        self.assertEqual(args.primary_input, "data/academy_by_complex.csv")
+        self.assertEqual(args.seoul_input, "data/seoul_academies.csv")
+        self.assertEqual(args.busan_input, "data/busan_academies.csv")
+        self.assertEqual(args.source_name, "academy_nearby_complex_2604")
+        self.assertEqual(args.radius_m, 500)
+        self.assertEqual(args.sleep_seconds, 0)
+
+    def test_db_import_healthcare_distances_command_parses_inputs(self):
+        args = build_parser().parse_args(
+            [
+                "db-import-healthcare-distances",
+                "--seoul-hospital-input",
+                "data/seoul_hospital.csv",
+                "--seoul-hospital-input",
+                "data/seoul_clinic.csv",
+                "--busan-hospital-input",
+                "data/busan_hospital.csv",
+                "--busan-hospital-input",
+                "data/busan_clinic.csv",
+                "--seoul-pharmacy-input",
+                "data/seoul_pharmacy.csv",
+                "--busan-pharmacy-input",
+                "data/busan_pharmacy.csv",
+            ]
+        )
+
+        self.assertEqual(args.command, "db-import-healthcare-distances")
+        self.assertEqual(args.seoul_hospital_input, ["data/seoul_hospital.csv", "data/seoul_clinic.csv"])
+        self.assertEqual(args.busan_hospital_input, ["data/busan_hospital.csv", "data/busan_clinic.csv"])
+        self.assertEqual(args.seoul_pharmacy_input, ["data/seoul_pharmacy.csv"])
+        self.assertEqual(args.busan_pharmacy_input, ["data/busan_pharmacy.csv"])
+        self.assertEqual(args.source_name, "healthcare_facility")
+
     def test_db_import_access_times_command_parses_input(self):
         args = build_parser().parse_args(
             [
@@ -323,6 +540,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.command, "db-feature-coverage")
         self.assertEqual(args.output_dir, "artifacts/coverage")
 
+    def test_model_diagnostics_command_parses_options(self):
+        args = build_parser().parse_args(
+            [
+                "model-diagnostics",
+                "--model",
+                "artifacts/model.pkl",
+                "--output-dir",
+                "artifacts/diagnostics",
+                "--city-code",
+                "seoul",
+                "--property-types",
+                "apartment",
+                "--validation-months",
+                "3",
+                "--min-segment-count",
+                "50",
+            ]
+        )
+
+        self.assertEqual(args.command, "model-diagnostics")
+        self.assertEqual(args.model, "artifacts/model.pkl")
+        self.assertEqual(args.output_dir, "artifacts/diagnostics")
+        self.assertEqual(args.city_code, "seoul")
+        self.assertEqual(args.property_types, "apartment")
+        self.assertEqual(args.validation_months, 3)
+        self.assertEqual(args.min_segment_count, 50)
+
     def test_db_clear_data_command_parses(self):
         args = build_parser().parse_args(["db-clear-data"])
 
@@ -342,12 +586,14 @@ class CliTests(unittest.TestCase):
                 "busan",
                 "--property-types",
                 "apartment,rowhouse",
+                "--allow-missing-factors",
             ]
         )
 
         self.assertTrue(args.from_db)
         self.assertEqual(args.city_code, "busan")
         self.assertEqual(args.property_types, "apartment,rowhouse")
+        self.assertTrue(args.allow_missing_factors)
 
     def test_train_command_prints_realtime_progress_to_stderr(self):
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as csv_file:
@@ -367,8 +613,10 @@ class CliTests(unittest.TestCase):
                         input_path,
                         "--model-output",
                         model_path,
-                        "--alpha",
-                        "0.1",
+                        "--max-iter",
+                        "20",
+                        "--min-samples-leaf",
+                        "1",
                         "--min-apartment-count",
                         "2",
                         "--validation-months",
@@ -380,9 +628,55 @@ class CliTests(unittest.TestCase):
             progress_text = stderr.getvalue()
             self.assertIn("[train] CSV 로드 시작", progress_text)
             self.assertIn("[train] 특성 생성", progress_text)
-            self.assertIn("[train] sklearn Ridge 학습", progress_text)
+            self.assertIn("[train] sklearn HistGradientBoosting 학습", progress_text)
             self.assertIn("[train] 모델 저장 완료", progress_text)
             self.assertIn('"model_output"', stdout.getvalue())
+        finally:
+            os.unlink(input_path)
+            os.unlink(model_path)
+
+    def test_train_command_writes_run_manifest_artifacts(self):
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as csv_file:
+            input_path = csv_file.name
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as model_file:
+            model_path = model_file.name
+
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        try:
+            write_transactions_csv(sample_transactions(), input_path)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                run_dir = Path(tmpdir) / "run"
+                with redirect_stderr(stderr), redirect_stdout(stdout):
+                    exit_code = main(
+                        [
+                            "train",
+                            "--input",
+                            input_path,
+                            "--model-output",
+                            model_path,
+                            "--run-output-dir",
+                            str(run_dir),
+                            "--max-iter",
+                            "20",
+                            "--min-samples-leaf",
+                            "1",
+                            "--min-apartment-count",
+                            "2",
+                            "--validation-months",
+                            "2",
+                        ]
+                    )
+
+                self.assertEqual(exit_code, 0)
+                self.assertTrue((run_dir / "run_manifest.json").exists())
+                self.assertTrue((run_dir / "model.pkl").exists())
+                self.assertTrue((run_dir / "feature_names.csv").exists())
+                payload = json.loads(stdout.getvalue())
+                self.assertIn("mape", payload["metrics"])
+                self.assertEqual(payload["run_output_dir"], str(run_dir))
+                self.assertEqual(payload["run_manifest"], str(run_dir / "run_manifest.json"))
+                self.assertEqual(payload["run_artifacts"]["metrics"], str(run_dir / "metrics.json"))
         finally:
             os.unlink(input_path)
             os.unlink(model_path)
@@ -458,8 +752,10 @@ class CliTests(unittest.TestCase):
                         "seoul",
                         "--model-output",
                         model_path,
-                        "--alpha",
-                        "0.1",
+                        "--max-iter",
+                        "20",
+                        "--min-samples-leaf",
+                        "1",
                         "--min-apartment-count",
                         "2",
                         "--validation-months",
@@ -473,6 +769,86 @@ class CliTests(unittest.TestCase):
             self.assertIn('"model_output"', stdout.getvalue())
         finally:
             os.unlink(model_path)
+
+    def test_train_from_db_can_include_incomplete_factor_rows(self):
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as model_file:
+            model_path = model_file.name
+
+        try:
+            with (
+                patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+                patch("hedonic_house_price.cli.read_transactions_from_training_view", return_value=sample_transactions()) as read_mock,
+                redirect_stderr(io.StringIO()),
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "train",
+                        "--from-db",
+                        "--city-code",
+                        "busan",
+                        "--property-types",
+                        "apartment",
+                        "--allow-missing-factors",
+                        "--model-output",
+                        model_path,
+                        "--max-iter",
+                        "20",
+                        "--min-samples-leaf",
+                        "1",
+                        "--min-apartment-count",
+                        "2",
+                        "--validation-months",
+                        "2",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertFalse(read_mock.call_args.kwargs["require_complete_factors"])
+        finally:
+            os.unlink(model_path)
+
+    def test_model_diagnostics_uses_db_rows_and_model_artifact(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.load_model", return_value=object()) as load_mock,
+            patch("hedonic_house_price.cli.read_transactions_from_training_view", return_value=sample_transactions()) as read_mock,
+            patch(
+                "hedonic_house_price.cli.generate_residual_diagnostics",
+                return_value={
+                    "validation_rows": 2,
+                    "residual_segments_csv": "artifacts/model_diagnostics/residual_segments.csv",
+                    "top_error_segments_csv": "artifacts/model_diagnostics/top_error_segments.csv",
+                    "summary_markdown": "artifacts/model_diagnostics/diagnostics_summary.md",
+                },
+            ) as diagnostics_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "model-diagnostics",
+                    "--model",
+                    "artifacts/model.pkl",
+                    "--city-code",
+                    "seoul",
+                    "--property-types",
+                    "apartment",
+                    "--validation-months",
+                    "2",
+                    "--min-segment-count",
+                    "10",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        load_mock.assert_called_once_with("artifacts/model.pkl")
+        self.assertEqual(read_mock.call_args.kwargs["city_code"], "seoul")
+        self.assertEqual(read_mock.call_args.kwargs["property_types"], ["apartment"])
+        self.assertEqual(diagnostics_mock.call_args.args[1], sample_transactions())
+        self.assertEqual(diagnostics_mock.call_args.kwargs["validation_months"], 2)
+        self.assertEqual(diagnostics_mock.call_args.kwargs["min_segment_count"], 10)
+        self.assertIn('"summary_markdown"', stdout.getvalue())
 
     def test_db_clear_data_uses_maintenance_helper(self):
         stdout = io.StringIO()
@@ -696,6 +1072,74 @@ class CliTests(unittest.TestCase):
         self.assertEqual(import_mock.call_args.kwargs["source_name"], "park_standard_data")
         self.assertEqual(import_mock.call_args.kwargs["radius_m"], 750)
         self.assertIn('"snapshot_rows": 20', stdout.getvalue())
+
+    def test_db_import_academy_counts_uses_kakao_geocoder_and_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch("hedonic_house_price.cli.KakaoGeocoder") as geocoder_cls,
+            patch("hedonic_house_price.cli.get_kakao_rest_api_key", return_value="kakao-key"),
+            patch(
+                "hedonic_house_price.cli.import_academy_count_snapshots_csv",
+                return_value={"snapshot_rows": 20, "fallback_matched_complexes": 2},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-academy-counts",
+                    "--primary-input",
+                    "data/academy_by_complex.csv",
+                    "--seoul-input",
+                    "data/seoul_academies.csv",
+                    "--busan-input",
+                    "data/busan_academies.csv",
+                    "--radius-m",
+                    "500",
+                    "--sleep-seconds",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        geocoder_cls.assert_called_once_with("kakao-key")
+        self.assertEqual(import_mock.call_args.args[1], "data/academy_by_complex.csv")
+        self.assertEqual(import_mock.call_args.kwargs["seoul_csv_path"], "data/seoul_academies.csv")
+        self.assertEqual(import_mock.call_args.kwargs["busan_csv_path"], "data/busan_academies.csv")
+        self.assertEqual(import_mock.call_args.kwargs["radius_m"], 500)
+        self.assertEqual(import_mock.call_args.kwargs["sleep_seconds"], 0)
+        self.assertIn('"fallback_matched_complexes": 2', stdout.getvalue())
+
+    def test_db_import_healthcare_distances_uses_import_helper(self):
+        stdout = io.StringIO()
+        with (
+            patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+            patch(
+                "hedonic_house_price.cli.import_healthcare_distance_snapshots_csvs",
+                return_value={"snapshot_rows": 20, "hospital_rows": 8, "pharmacy_rows": 3},
+            ) as import_mock,
+            redirect_stdout(stdout),
+        ):
+            exit_code = main(
+                [
+                    "db-import-healthcare-distances",
+                    "--seoul-hospital-input",
+                    "data/seoul_hospital.csv",
+                    "--busan-hospital-input",
+                    "data/busan_hospital.csv",
+                    "--seoul-pharmacy-input",
+                    "data/seoul_pharmacy.csv",
+                    "--busan-pharmacy-input",
+                    "data/busan_pharmacy.csv",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(import_mock.call_args.kwargs["seoul_hospital_paths"], ["data/seoul_hospital.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["busan_hospital_paths"], ["data/busan_hospital.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["seoul_pharmacy_paths"], ["data/seoul_pharmacy.csv"])
+        self.assertEqual(import_mock.call_args.kwargs["busan_pharmacy_paths"], ["data/busan_pharmacy.csv"])
+        self.assertIn('"hospital_rows": 8', stdout.getvalue())
 
     def test_db_import_access_times_uses_import_helper(self):
         stdout = io.StringIO()

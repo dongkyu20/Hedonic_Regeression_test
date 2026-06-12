@@ -93,9 +93,9 @@ PYTHONPATH=src python3 -m hedonic_house_price train --input data/seoul_housing_t
 [train] CSV 로드 시작 input=data/seoul_apartment_trades.csv
 [train] CSV 로드 완료 rows=143940 elapsed_s=0.4
 [train] 학습/검증 분할 완료 training_rows=108748 validation_rows=35192 first_month=202407 elapsed_s=0.6
-[train] sklearn Ridge 학습 training_rows=108748 alpha=1.0 elapsed_s=1.4
-[train] 평가 완료 rows=35192 mape=0.2347 r2_log=0.7984 elapsed_s=2.1
-[train] 모델 저장 완료 output=artifacts/hedonic_model.pkl elapsed_s=2.3
+[train] sklearn HistGradientBoosting 학습 training_rows=108748 max_iter=300 learning_rate=0.06 max_leaf_nodes=31 min_samples_leaf=30 l2_regularization=0.0 random_state=42 elapsed_s=9.8
+[train] 평가 완료 rows=35192 mape=0.2347 r2_log=0.7984 elapsed_s=12.1
+[train] 모델 저장 완료 output=artifacts/hedonic_model.pkl elapsed_s=12.3
 ```
 
 학습이 끝나면 `artifacts/hedonic_model.pkl` 모델 파일이 생성되고, 마지막에 `mae_krw`, `rmse_krw`, `mape`, `r2_log` 같은 평가 지표가 JSON으로 출력됩니다.
@@ -163,13 +163,17 @@ PYTHONPATH=src python3 -m hedonic_house_price gui --model artifacts/hedonic_mode
 
 ## 모델 특성
 
-종속변수는 `log(거래가격)`입니다. 설명변수는 `log(전용면적)`, 연식, 연식 제곱, 거래월 추세, 자치구, 법정동, 계약월, 층 관련 특성, 주택유형(`property_type`)입니다. 연립·다세대 데이터에 대지권면적이 있으면 `log_land_area_m2`, `has_land_area`도 사용하고, `house_type`이 있으면 범주형 특성으로 사용합니다. 건물명은 CSV에는 저장하지만 학습 요인에서는 제외합니다.
+종속변수는 `log(거래가격)`입니다. 기본 설명변수는 `log1p(전용면적)`, 거래월 추세, 자치구, 법정동, 계약월, 층 구간, 연식 구간, 주택유형(`property_type`)입니다. 연립·다세대 데이터에 대지권면적이 있으면 `log1p(land_area_m2)`, `has_land_area`도 사용하고, `house_type`이 있으면 범주형 특성으로 사용합니다. 건물명은 CSV에는 저장하지만 학습 요인에서는 제외합니다.
 
-학습은 scikit-learn `Pipeline`으로 구성됩니다. `DictVectorizer`가 범주형 변수를 원핫 인코딩하고, `StandardScaler(with_mean=False)`가 sparse 행렬을 유지한 채 스케일링하며, `Ridge`가 로그 거래가격을 학습합니다. 모델 아티팩트는 sklearn 객체를 포함하므로 pickle 파일(`.pkl`)로 저장됩니다.
+학습은 scikit-learn `Pipeline`으로 구성됩니다. `DictVectorizer(sparse=False)`가 범주형 변수를 원핫 인코딩하고, `HistGradientBoostingRegressor`가 로그 거래가격을 학습합니다. 기본값은 `max_iter=300`, `learning_rate=0.06`, `max_leaf_nodes=31`, `min_samples_leaf=30`, `l2_regularization=0.0`, `random_state=42`입니다. 트리 기반 모델이므로 선형모델용 스케일링 단계는 사용하지 않습니다. 모델 아티팩트는 sklearn 객체를 포함하므로 pickle 파일(`.pkl`)로 저장됩니다.
 
-층은 단순히 높을수록 비싸다고 가정하지 않습니다. `floor_band`, `low_floor`, `floor`, `floor_squared`를 함께 사용해 저층 할인, 중층/중고층 선호, 초고층의 다른 가격 패턴을 데이터에서 학습할 수 있게 했습니다.
+층은 단순히 높을수록 비싸다고 가정하지 않습니다. 원시 층수 대신 `floor_band`와 `low_floor`를 사용해 저층 할인, 중층/중고층 선호, 초고층의 다른 가격 패턴을 범주형 효과로 학습합니다. 또한 거래내역에서 단지별 관측 최고층을 그대로 `estimated_max_floor`로 사용하고, `relative_floor`, `is_first_floor`, `is_floor_2_3`, `is_estimated_top_floor`, `is_near_estimated_top_floor`를 추가합니다. 연식도 `deal_year - build_year`를 학습 시점에 계산한 뒤 `age_band`로 구간화합니다.
 
-`train` 명령은 CSV 로드, 학습/검증 분할, 특성 생성, sklearn Ridge 학습, 평가, 층 구간 잔차 계산, 모델 저장 단계를 `stderr`에 즉시 출력합니다. 최종 JSON 결과는 기존처럼 `stdout`에 출력됩니다.
+MySQL `model_training_features`로 학습할 때는 보강된 snapshot feature도 함께 사용합니다. 세대수와 총주차대수, 모든 거리/접근시간, 공원 면적 합계는 `log1p`로 변환하고, 지하철·버스·학교·학원·최근 거래량 같은 개수 변수는 구간화합니다. 동수 원본은 직접 쓰지 않고 `households_per_building`을 계산하며, 공원 면적은 `park_exists` 더미와 `log1p(park_area_total_m2_radius)`를 함께 사용합니다.
+
+DB 학습은 현재 학습에 쓰는 보강 변수 중 하나라도 `NULL`인 거래를 제외하고, complete-case row만 사용합니다.
+
+`train` 명령은 CSV 로드, 학습/검증 분할, 특성 생성, sklearn HistGradientBoosting 학습, 평가, 층 구간 잔차 계산, 모델 저장 단계를 `stderr`에 즉시 출력합니다. 최종 JSON 결과는 기존처럼 `stdout`에 출력됩니다.
 
 ## MySQL 데이터베이스 사용
 
@@ -211,6 +215,18 @@ PYTHONPATH=src python3 -m hedonic_house_price db-import-csv \
   --city-code busan
 ```
 
+최고층 추정 보강용으로 2010년 1월 이후 서울/부산 아파트 거래를 조회해 단지별 관측 최고층 통계 CSV를 만들 수 있습니다. 이 파일은 가격 학습용 거래 DB에 자동 적재되지 않습니다.
+
+```bash
+PYTHON_BIN=python3 \
+END_MONTH=202606 \
+WORKERS=1 \
+SLEEP_SECONDS=0.05 \
+scripts/fetch_historical_floor_stats.sh
+```
+
+API가 `HTTP 429 Too Many Requests`를 반환하면 일정 시간 후 재실행하거나 `WORKERS=1`, `RETRY_BACKOFF_SECONDS=60` 이상의 보수 설정을 사용합니다.
+
 MySQL의 `model_training_features` 뷰에서 거래를 읽어 학습하려면 `train --from-db`를 사용합니다.
 
 ```bash
@@ -219,6 +235,39 @@ PYTHONPATH=src python3 -m hedonic_house_price train \
   --city-code seoul \
   --model-output artifacts/hedonic_mysql_seoul_model.pkl
 ```
+
+거래 기간을 늘린 실험에서 과거 월의 보강 snapshot이 비어 있으면 기본 complete-case 학습에서는 해당 row가 제외됩니다. 이런 비교 실험에서는 `--allow-missing-factors`를 지정해 결측 indicator 기반으로 학습 row를 포함할 수 있습니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price train \
+  --from-db \
+  --city-code busan \
+  --property-types apartment \
+  --allow-missing-factors \
+  --floor-stats data/seoul_busan_complex_floor_stats_201007_202606_merged.csv \
+  --model-output artifacts/hedonic_db_hist_gradient_boosting_target_encoding_busan_four_year_observed_floor_calibrated_model.pkl
+```
+
+학습 1회 단위로 전처리 문서, 실제 feature 목록, metrics, 모델 파일, manifest를 함께 보관하려면 `--run-output-dir`을 지정합니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price train \
+  --from-db \
+  --property-types apartment \
+  --floor-stats data/seoul_busan_complex_floor_stats_201007_202606_merged.csv \
+  --model-output artifacts/hedonic_db_hist_gradient_boosting_model.pkl \
+  --max-iter 300 \
+  --learning-rate 0.06 \
+  --max-leaf-nodes 31 \
+  --min-samples-leaf 30 \
+  --l2-regularization 0.0 \
+  --global-calibration-shrinkage 0.25 \
+  --global-calibration-max-log-offset 0.01 \
+  --random-state 42 \
+  --run-output-dir artifacts/training_runs/20260610_hist_gradient_boosting_complete_case
+```
+
+run 폴더에는 `run_manifest.json`, `model.pkl`, `preprocessing.md`, `feature_names.csv`, `dropped_features.json`, `metrics.json`, `residuals_by_floor_band.json`이 생성됩니다.
 
 `housing_transactions.city_code`와 `administrative_regions.city_code`는 `seoul` 또는 `busan` 값으로 서울/부산 여부를 명확히 구분합니다. 교통, 생활·교육·자연환경, 도시 경쟁력 값은 각 snapshot 테이블에 월 단위로 적재하면 `model_training_features` 뷰에서 거래 월과 정확히 일치하는 값만 조인됩니다.
 

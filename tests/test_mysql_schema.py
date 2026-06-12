@@ -44,6 +44,12 @@ class MysqlSchemaTests(unittest.TestCase):
 
         self.assertNotIn("monthly_maintenance_fee_krw", sql)
 
+    def test_property_condition_schema_excludes_building_age_years(self):
+        sql = SCHEMA_SQL.read_text(encoding="utf-8")
+
+        self.assertIn("build_year SMALLINT UNSIGNED NULL", sql)
+        self.assertNotIn("building_age_years", sql)
+
     def test_living_environment_schema_excludes_nearest_high_school_distance(self):
         sql = SCHEMA_SQL.read_text(encoding="utf-8")
 
@@ -56,14 +62,21 @@ class MysqlSchemaTests(unittest.TestCase):
         self.assertIn("pcs_tx.source_name = 'transactions_derived'", sql)
         self.assertIn("pcs_kapt.source_name = 'kapt_basic_info'", sql)
         self.assertIn("COALESCE(pcs_kapt.household_count, pcs_tx.household_count)", sql)
+        self.assertIn("pcs_kapt.representative_floor AS kapt_max_floor", sql)
+        self.assertNotIn("COALESCE(pcs_kapt.representative_floor, pcs_tx.representative_floor)", sql)
 
     def test_training_view_joins_living_environment_sources_once(self):
         sql = SCHEMA_SQL.read_text(encoding="utf-8")
 
         self.assertIn("les_school_complex.source_name = 'school_location'", sql)
+        self.assertIn("les_academy_complex.source_name = 'academy_nearby_complex_2604'", sql)
+        self.assertIn("les_healthcare_complex.source_name = 'healthcare_facility'", sql)
         self.assertIn("les_park_complex.source_name = 'park_standard_data'", sql)
         self.assertIn("COALESCE(les_park_complex.nearest_park_distance_m", sql)
         self.assertIn("COALESCE(les_school_complex.school_count_radius", sql)
+        self.assertIn("COALESCE(les_academy_complex.academy_count_radius", sql)
+        self.assertIn("COALESCE(les_healthcare_complex.nearest_hospital_distance_m", sql)
+        self.assertIn("COALESCE(les_healthcare_complex.nearest_pharmacy_distance_m", sql)
 
     def test_seed_contains_seoul_and_busan_district_rows(self):
         seed = SEED_SQL.read_text(encoding="utf-8")
