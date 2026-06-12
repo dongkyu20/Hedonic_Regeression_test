@@ -21,7 +21,12 @@ from .dates import current_yyyymm, recent_months
 from .geocoding import KakaoGeocoder, geocode_missing_complex_coordinates, get_kakao_rest_api_key
 from .gui import DEFAULT_BUSAN_MODEL_PATH, DEFAULT_SEOUL_MODEL_PATH, run_gui_server
 from .healthcare import import_healthcare_distance_snapshots_csvs
-from .historical_floors import fetch_historical_floor_stats, historical_months, write_historical_floor_stats_csv
+from .historical_floors import (
+    fetch_historical_floor_stats,
+    historical_months,
+    read_estimated_max_floors_csv,
+    write_historical_floor_stats_csv,
+)
 from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_name_for_city_code, district_codes_for_city
 from .model_diagnostics import generate_residual_diagnostics
 from .modeling import PredictionInput, load_model, predict_price, save_model, train_hedonic_model
@@ -87,7 +92,15 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--min-apartment-count", type=int, default=5, help=argparse.SUPPRESS)
     train_parser.add_argument("--validation-months", type=int, default=6)
     train_parser.add_argument("--run-output-dir", default=None, help="Optional directory for a full training-run manifest and artifacts.")
+    train_parser.add_argument("--floor-stats", default=None, help="Optional complex max-floor stats CSV.")
+    train_parser.add_argument("--global-calibration-shrinkage", type=float, default=0.0)
+    train_parser.add_argument("--global-calibration-max-log-offset", type=float, default=0.0)
     train_parser.add_argument("--from-db", action="store_true", help="Train from MySQL model_training_features instead of CSV.")
+    train_parser.add_argument(
+        "--allow-missing-factors",
+        action="store_true",
+        help="Include DB training rows even when enriched factor snapshots are incomplete.",
+    )
     train_parser.add_argument("--city-code", choices=["seoul", "busan"], default=None, help="Filter DB training rows by city.")
     train_parser.add_argument(
         "--property-types",
@@ -459,12 +472,19 @@ def _handle_train(args: argparse.Namespace) -> int:
             connection,
             city_code=args.city_code,
             property_types=property_types,
+            require_complete_factors=not args.allow_missing_factors,
         )
         _print_train_progress("DB 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
     else:
         _print_train_progress("CSV 로드 시작", input=args.input)
         transactions = read_transactions_csv(args.input)
         _print_train_progress("CSV 로드 완료", rows=len(transactions), elapsed_s=_elapsed(started))
+
+    estimated_max_floors = None
+    if args.floor_stats:
+        _print_train_progress("최고층 통계 로드 시작", input=args.floor_stats, elapsed_s=_elapsed(started))
+        estimated_max_floors = read_estimated_max_floors_csv(args.floor_stats)
+        _print_train_progress("최고층 통계 로드 완료", complexes=len(estimated_max_floors), elapsed_s=_elapsed(started))
 
     model = train_hedonic_model(
         transactions,
@@ -476,6 +496,9 @@ def _handle_train(args: argparse.Namespace) -> int:
         random_state=args.random_state,
         min_apartment_count=args.min_apartment_count,
         validation_months=args.validation_months,
+        estimated_max_floors=estimated_max_floors,
+        global_calibration_shrinkage=args.global_calibration_shrinkage,
+        global_calibration_max_log_offset=args.global_calibration_max_log_offset,
         progress=lambda event: _print_model_progress(event, started),
     )
     _print_train_progress("모델 저장 시작", output=args.model_output, elapsed_s=_elapsed(started))
@@ -492,9 +515,11 @@ def _handle_train(args: argparse.Namespace) -> int:
                 data_source="mysql.model_training_features" if args.from_db else args.input,
                 city_code=args.city_code if args.from_db else None,
                 property_types=property_types,
-                complete_case_only=bool(args.from_db),
+                complete_case_only=bool(args.from_db and not args.allow_missing_factors),
+                allow_missing_factors=bool(args.allow_missing_factors),
                 validation_months=args.validation_months,
                 model_type="HistGradientBoosting",
+                floor_stats_source=args.floor_stats,
                 hyperparameters={
                     "max_iter": args.max_iter,
                     "learning_rate": args.learning_rate,
@@ -502,6 +527,8 @@ def _handle_train(args: argparse.Namespace) -> int:
                     "min_samples_leaf": args.min_samples_leaf,
                     "l2_regularization": args.l2_regularization,
                     "random_state": args.random_state,
+                    "global_calibration_shrinkage": args.global_calibration_shrinkage,
+                    "global_calibration_max_log_offset": args.global_calibration_max_log_offset,
                 },
             ),
         )
@@ -514,6 +541,9 @@ def _handle_train(args: argparse.Namespace) -> int:
         "metrics": model.metrics,
         "residuals_by_floor_band": model.residuals_by_floor_band,
     }
+    if args.floor_stats:
+        payload["floor_stats"] = args.floor_stats
+        payload["floor_estimate_count"] = len(model.estimated_max_floors)
     if run_artifacts is not None:
         payload["run_output_dir"] = run_artifacts["run_output_dir"]
         payload["run_manifest"] = run_artifacts["run_manifest"]

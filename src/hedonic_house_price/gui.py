@@ -12,8 +12,8 @@ from .law_codes import CITY_DISTRICT_CODES, SEOUL_DISTRICT_CODES, city_code_for_
 from .modeling import PredictionInput, load_model, predict_price
 
 
-DEFAULT_SEOUL_MODEL_PATH = "artifacts/hedonic_db_hist_gradient_boosting_target_encoding_seoul_deep_model.pkl"
-DEFAULT_BUSAN_MODEL_PATH = "artifacts/hedonic_db_hist_gradient_boosting_target_encoding_busan_deep_model.pkl"
+DEFAULT_SEOUL_MODEL_PATH = "artifacts/best_models/seoul_best_model.pkl"
+DEFAULT_BUSAN_MODEL_PATH = "artifacts/best_models/busan_best_model.pkl"
 
 
 @dataclass(frozen=True)

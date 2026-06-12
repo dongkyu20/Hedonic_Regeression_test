@@ -214,6 +214,12 @@ class CliTests(unittest.TestCase):
                 "0.2",
                 "--random-state",
                 "17",
+                "--floor-stats",
+                "data/floor_stats.csv",
+                "--global-calibration-shrinkage",
+                "0.25",
+                "--global-calibration-max-log-offset",
+                "0.01",
             ]
         )
 
@@ -226,6 +232,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.min_samples_leaf, 3)
         self.assertEqual(args.l2_regularization, 0.2)
         self.assertEqual(args.random_state, 17)
+        self.assertEqual(args.floor_stats, "data/floor_stats.csv")
+        self.assertEqual(args.global_calibration_shrinkage, 0.25)
+        self.assertEqual(args.global_calibration_max_log_offset, 0.01)
 
     def test_train_command_parses_run_output_dir(self):
         args = build_parser().parse_args(
@@ -577,12 +586,14 @@ class CliTests(unittest.TestCase):
                 "busan",
                 "--property-types",
                 "apartment,rowhouse",
+                "--allow-missing-factors",
             ]
         )
 
         self.assertTrue(args.from_db)
         self.assertEqual(args.city_code, "busan")
         self.assertEqual(args.property_types, "apartment,rowhouse")
+        self.assertTrue(args.allow_missing_factors)
 
     def test_train_command_prints_realtime_progress_to_stderr(self):
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as csv_file:
@@ -756,6 +767,44 @@ class CliTests(unittest.TestCase):
             self.assertIn("[train] DB 로드 시작", stderr.getvalue())
             self.assertIn("[train] DB 로드 완료", stderr.getvalue())
             self.assertIn('"model_output"', stdout.getvalue())
+        finally:
+            os.unlink(model_path)
+
+    def test_train_from_db_can_include_incomplete_factor_rows(self):
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as model_file:
+            model_path = model_file.name
+
+        try:
+            with (
+                patch("hedonic_house_price.cli.get_mysql_connection", return_value=object()),
+                patch("hedonic_house_price.cli.read_transactions_from_training_view", return_value=sample_transactions()) as read_mock,
+                redirect_stderr(io.StringIO()),
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "train",
+                        "--from-db",
+                        "--city-code",
+                        "busan",
+                        "--property-types",
+                        "apartment",
+                        "--allow-missing-factors",
+                        "--model-output",
+                        model_path,
+                        "--max-iter",
+                        "20",
+                        "--min-samples-leaf",
+                        "1",
+                        "--min-apartment-count",
+                        "2",
+                        "--validation-months",
+                        "2",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertFalse(read_mock.call_args.kwargs["require_complete_factors"])
         finally:
             os.unlink(model_path)
 

@@ -236,18 +236,33 @@ PYTHONPATH=src python3 -m hedonic_house_price train \
   --model-output artifacts/hedonic_mysql_seoul_model.pkl
 ```
 
+거래 기간을 늘린 실험에서 과거 월의 보강 snapshot이 비어 있으면 기본 complete-case 학습에서는 해당 row가 제외됩니다. 이런 비교 실험에서는 `--allow-missing-factors`를 지정해 결측 indicator 기반으로 학습 row를 포함할 수 있습니다.
+
+```bash
+PYTHONPATH=src python3 -m hedonic_house_price train \
+  --from-db \
+  --city-code busan \
+  --property-types apartment \
+  --allow-missing-factors \
+  --floor-stats data/seoul_busan_complex_floor_stats_201007_202606_merged.csv \
+  --model-output artifacts/hedonic_db_hist_gradient_boosting_target_encoding_busan_four_year_observed_floor_calibrated_model.pkl
+```
+
 학습 1회 단위로 전처리 문서, 실제 feature 목록, metrics, 모델 파일, manifest를 함께 보관하려면 `--run-output-dir`을 지정합니다.
 
 ```bash
 PYTHONPATH=src python3 -m hedonic_house_price train \
   --from-db \
   --property-types apartment \
+  --floor-stats data/seoul_busan_complex_floor_stats_201007_202606_merged.csv \
   --model-output artifacts/hedonic_db_hist_gradient_boosting_model.pkl \
   --max-iter 300 \
   --learning-rate 0.06 \
   --max-leaf-nodes 31 \
   --min-samples-leaf 30 \
   --l2-regularization 0.0 \
+  --global-calibration-shrinkage 0.25 \
+  --global-calibration-max-log-offset 0.01 \
   --random-state 42 \
   --run-output-dir artifacts/training_runs/20260610_hist_gradient_boosting_complete_case
 ```

@@ -21,6 +21,8 @@ class RunMetadata:
     validation_months: int
     model_type: str
     hyperparameters: dict[str, float | int | str]
+    allow_missing_factors: bool = False
+    floor_stats_source: str | None = None
     preprocessing_version: str = "db_preprocessed_v3"
     target: str = "log(price_krw)"
 
@@ -102,12 +104,14 @@ def _manifest(
         "city_code": metadata.city_code,
         "property_types": metadata.property_types,
         "complete_case_only": metadata.complete_case_only,
+        "allow_missing_factors": metadata.allow_missing_factors,
         "training_rows": model.training_rows,
         "validation_rows": model.validation_rows,
         "validation_months": metadata.validation_months,
         "target": metadata.target,
         "preprocessing_version": metadata.preprocessing_version,
         "model_type": metadata.model_type,
+        "floor_stats_source": metadata.floor_stats_source,
         "hyperparameters": metadata.hyperparameters,
         "metrics": model.metrics,
         "artifact_paths": {

@@ -70,6 +70,10 @@ class TrainedModel:
     estimated_max_floors: dict[tuple[str, str, str, str], int] = field(default_factory=dict)
     dropped_features: set[str] = field(default_factory=set)
     target_encodings: TargetEncodingMap = field(default_factory=TargetEncodingMap)
+    global_calibration_log_offset: float = 0.0
+    global_calibration_raw_log_offset: float = 0.0
+    global_calibration_shrinkage: float = 0.0
+    global_calibration_max_log_offset: float = 0.0
 
 def train_hedonic_model(
     transactions: list[Transaction],
@@ -81,6 +85,9 @@ def train_hedonic_model(
     random_state: int = 42,
     min_apartment_count: int = 5,
     validation_months: int = 6,
+    estimated_max_floors: dict[tuple[str, str, str, str], int] | None = None,
+    global_calibration_shrinkage: float = 0.0,
+    global_calibration_max_log_offset: float = 0.0,
     progress: Callable[[dict[str, object]], None] | None = None,
 ) -> TrainedModel:
     usable = sorted(transactions, key=lambda transaction: transaction.deal_ymd)
@@ -100,12 +107,15 @@ def train_hedonic_model(
 
     common_apartments: set[str] = set()
     _report(progress, "exclude_apartment_name")
-    estimated_max_floors = estimate_complex_max_floors(train_transactions)
+    model_estimated_max_floors = _merge_complex_floor_estimates(
+        estimate_complex_max_floors(train_transactions),
+        estimated_max_floors,
+    )
 
     raw_train_rows = make_feature_rows(
         train_transactions,
         first_month=first_month,
-        estimated_max_floors=estimated_max_floors,
+        estimated_max_floors=model_estimated_max_floors,
     )
     target_encodings = fit_target_encodings(raw_train_rows)
     raw_train_rows = apply_target_encodings(raw_train_rows, target_encodings)
@@ -119,7 +129,7 @@ def train_hedonic_model(
     raw_validation_rows = make_feature_rows(
         validation_transactions,
         first_month=first_month,
-        estimated_max_floors=estimated_max_floors,
+        estimated_max_floors=model_estimated_max_floors,
     )
     raw_validation_rows = apply_target_encodings(raw_validation_rows, target_encodings)
     validation_rows = _drop_features(
@@ -148,7 +158,33 @@ def train_hedonic_model(
         random_state=random_state,
     )
 
-    metrics = evaluate_rows(pipeline, validation_rows or train_rows)
+    evaluation_rows = validation_rows or train_rows
+    uncalibrated_metrics = evaluate_rows(pipeline, evaluation_rows)
+    calibration_log_offset = global_calibration_log_offset(
+        pipeline,
+        evaluation_rows,
+        shrinkage=global_calibration_shrinkage,
+        max_abs_log_offset=global_calibration_max_log_offset,
+    )
+    raw_calibration_log_offset = global_calibration_log_offset(
+        pipeline,
+        evaluation_rows,
+        shrinkage=1.0,
+        max_abs_log_offset=0.0,
+    )
+    metrics = evaluate_rows(pipeline, evaluation_rows, log_offset=calibration_log_offset)
+    if calibration_log_offset:
+        metrics.update(
+            {
+                "uncalibrated_mae_krw": uncalibrated_metrics["mae_krw"],
+                "uncalibrated_rmse_krw": uncalibrated_metrics["rmse_krw"],
+                "uncalibrated_mape": uncalibrated_metrics["mape"],
+                "uncalibrated_r2_log": uncalibrated_metrics["r2_log"],
+            }
+        )
+    metrics["global_calibration_raw_log_offset"] = raw_calibration_log_offset
+    metrics["global_calibration_log_offset"] = calibration_log_offset
+    metrics["global_calibration_multiplier"] = math.exp(calibration_log_offset)
     _report(progress, "evaluate", rows=len(validation_rows or train_rows), mape=metrics["mape"], r2_log=metrics["r2_log"])
 
     all_rows = _drop_features(
@@ -156,13 +192,18 @@ def train_hedonic_model(
             make_feature_rows(
                 usable,
                 first_month=first_month,
-                estimated_max_floors=estimated_max_floors,
+                estimated_max_floors=model_estimated_max_floors,
             ),
             target_encodings,
         ),
         dropped_feature_names,
     )
-    residuals_by_floor_band = residuals_by_group(pipeline, all_rows, group_name="floor_band")
+    residuals_by_floor_band = residuals_by_group(
+        pipeline,
+        all_rows,
+        group_name="floor_band",
+        log_offset=calibration_log_offset,
+    )
     _report(progress, "residuals", rows=len(all_rows), floor_bands=len(residuals_by_floor_band))
 
     model = TrainedModel(
@@ -173,12 +214,29 @@ def train_hedonic_model(
         residuals_by_floor_band=residuals_by_floor_band,
         training_rows=len(train_rows),
         validation_rows=len(validation_rows),
-        estimated_max_floors=estimated_max_floors,
+        estimated_max_floors=model_estimated_max_floors,
         dropped_features=dropped_feature_names,
         target_encodings=target_encodings,
+        global_calibration_log_offset=calibration_log_offset,
+        global_calibration_raw_log_offset=raw_calibration_log_offset,
+        global_calibration_shrinkage=global_calibration_shrinkage,
+        global_calibration_max_log_offset=global_calibration_max_log_offset,
     )
     _report(progress, "complete", training_rows=model.training_rows, validation_rows=model.validation_rows)
     return model
+
+
+def _merge_complex_floor_estimates(
+    training_estimates: dict[tuple[str, str, str, str], int],
+    external_estimates: dict[tuple[str, str, str, str], int] | None,
+) -> dict[tuple[str, str, str, str], int]:
+    merged = dict(training_estimates)
+    if not external_estimates:
+        return merged
+    for key, floor in external_estimates.items():
+        normalized_floor = max(1, int(floor))
+        merged[key] = max(normalized_floor, merged.get(key, normalized_floor))
+    return merged
 
 
 def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dict[str, int | float]:
@@ -195,7 +253,9 @@ def predict_price(model: TrainedModel, prediction_input: PredictionInput) -> dic
         ],
         getattr(model, "dropped_features", set()),
     )
-    predicted_log_price = model.pipeline.predict_one(feature_row[0])
+    predicted_log_price = model.pipeline.predict_one(feature_row[0]) + float(
+        getattr(model, "global_calibration_log_offset", 0.0)
+    )
     price_krw = int(round(math.exp(predicted_log_price)))
     return {
         "log_price": predicted_log_price,
@@ -261,12 +321,37 @@ def apply_target_encoding(
     return encoded_row
 
 
-def evaluate_rows(pipeline: HistGradientBoostingPipeline, rows: list[dict[str, object]]) -> dict[str, float]:
+def global_calibration_log_offset(
+    pipeline: HistGradientBoostingPipeline,
+    rows: list[dict[str, object]],
+    *,
+    shrinkage: float,
+    max_abs_log_offset: float,
+) -> float:
+    if not rows or shrinkage <= 0:
+        return 0.0
+
+    actual_log = [float(row["target_log_price"]) for row in rows]
+    predicted_log = pipeline.predict(rows)
+    raw_offset = sum(actual - predicted for actual, predicted in zip(actual_log, predicted_log)) / len(rows)
+    shrunken_offset = raw_offset * min(1.0, max(0.0, shrinkage))
+    if max_abs_log_offset <= 0:
+        return shrunken_offset
+    cap = abs(max_abs_log_offset)
+    return max(-cap, min(cap, shrunken_offset))
+
+
+def evaluate_rows(
+    pipeline: HistGradientBoostingPipeline,
+    rows: list[dict[str, object]],
+    *,
+    log_offset: float = 0.0,
+) -> dict[str, float]:
     if not rows:
         raise ValueError("cannot evaluate empty rows")
 
     actual_log = [float(row["target_log_price"]) for row in rows]
-    predicted_log = pipeline.predict(rows)
+    predicted_log = [value + log_offset for value in pipeline.predict(rows)]
     actual_krw = [math.exp(value) for value in actual_log]
     predicted_krw = [math.exp(value) for value in predicted_log]
     errors = [actual - predicted for actual, predicted in zip(actual_krw, predicted_krw)]
@@ -292,12 +377,14 @@ def residuals_by_group(
     pipeline: HistGradientBoostingPipeline,
     rows: list[dict[str, object]],
     group_name: str,
+    *,
+    log_offset: float = 0.0,
 ) -> dict[str, dict[str, float]]:
     predictions = pipeline.predict(rows)
     grouped: dict[str, list[float]] = {}
     for row, predicted_log in zip(rows, predictions):
         actual_krw = math.exp(float(row["target_log_price"]))
-        predicted_krw = math.exp(predicted_log)
+        predicted_krw = math.exp(predicted_log + log_offset)
         group = str(row[group_name])
         grouped.setdefault(group, []).append(actual_krw - predicted_krw)
 

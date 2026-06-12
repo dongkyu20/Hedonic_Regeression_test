@@ -9,7 +9,7 @@ from typing import Callable
 
 from .client import fetch_transactions_for_month
 from .law_codes import district_codes_for_city
-from .transactions import Transaction
+from .transactions import Transaction, normalize_property_type
 
 
 HistoricalFloorKey = tuple[str, str, str, str]
@@ -192,6 +192,24 @@ def write_historical_floor_stats_csv(stats: list[HistoricalFloorStat], path: str
             writer.writerow(stat.to_row())
 
 
+def read_estimated_max_floors_csv(path: str | Path) -> dict[HistoricalFloorKey, int]:
+    estimates: dict[HistoricalFloorKey, int] = {}
+    with Path(path).open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            property_type = normalize_property_type(row.get("property_type") or "apartment")
+            lawd_cd = str(row.get("lawd_cd") or "").strip()
+            legal_dong = str(row.get("legal_dong") or "").strip()
+            building_name = str(row.get("building_name") or "").strip()
+            estimated_max_floor = _optional_positive_int(
+                row.get("estimated_max_floor") or row.get("observed_max_floor")
+            )
+            if not lawd_cd or not legal_dong or not building_name or estimated_max_floor is None:
+                continue
+            estimates[(property_type, lawd_cd, legal_dong, building_name)] = estimated_max_floor
+    return estimates
+
+
 def fetch_historical_floor_stats(
     *,
     service_key: str,
@@ -354,6 +372,19 @@ def floor_confidence(observation_count: int) -> str:
     if observation_count >= 5:
         return "medium"
     return "low"
+
+
+def _optional_positive_int(value: object) -> int | None:
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        number = int(float(text))
+    except ValueError:
+        return None
+    if number <= 0:
+        return None
+    return number
 
 
 def _floor_key(transaction: Transaction) -> HistoricalFloorKey:

@@ -8,6 +8,7 @@ from hedonic_house_price.historical_floors import (
     build_historical_floor_stats,
     fetch_historical_floor_stats,
     historical_months,
+    read_estimated_max_floors_csv,
     write_historical_floor_stats_csv,
 )
 from hedonic_house_price.transactions import Transaction
@@ -113,6 +114,24 @@ class HistoricalFloorTests(unittest.TestCase):
         self.assertEqual(rows[0]["building_name"], "테스트아파트")
         self.assertEqual(rows[0]["observed_max_floor"], "21")
         self.assertEqual(rows[0]["estimated_max_floor"], "21")
+
+    def test_read_estimated_max_floors_csv_returns_feature_key_map(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "floor_stats.csv"
+            path.write_text(
+                "\n".join(
+                    [
+                        "city_code,property_type,district,lawd_cd,legal_dong,building_name,observed_max_floor,estimated_max_floor,observation_count,first_observed_yyyymm,last_observed_yyyymm,min_build_year,max_build_year,confidence",
+                        "seoul,apartment,강남구,11680,역삼동,테스트아파트,21,29,12,201001,202606,2001,2005,medium",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            estimates = read_estimated_max_floors_csv(path)
+
+        self.assertEqual(estimates[("apartment", "11680", "역삼동", "테스트아파트")], 29)
 
     def test_fetch_historical_floor_stats_accumulates_monthly_city_district_fetches(self):
         calls = []

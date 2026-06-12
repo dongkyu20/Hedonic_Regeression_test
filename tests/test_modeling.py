@@ -7,6 +7,7 @@ from hedonic_house_price.modeling import (
     PredictionInput,
     TARGET_ENCODING_SMOOTHING,
     TrainedModel,
+    global_calibration_log_offset,
     load_model,
     predict_price,
     save_model,
@@ -235,6 +236,36 @@ class ModelingTests(unittest.TestCase):
 
         self.assertEqual(model.estimated_max_floors[complex_floor_key(transactions[0])], 7)
 
+    def test_train_hedonic_model_uses_external_complex_floor_estimates(self):
+        transactions = [
+            Transaction(
+                district="강남구",
+                lawd_cd="11680",
+                deal_year=2025,
+                deal_month=idx + 1,
+                deal_day=10,
+                legal_dong="역삼동",
+                building_name="외부최고층단지",
+                property_type="apartment",
+                exclusive_area_m2=84.9,
+                floor=floor,
+                build_year=2008,
+                price_manwon=90_000 + idx * 1_000,
+            )
+            for idx, floor in enumerate([1, 2, 4, 7, 7, 6, 5, 3])
+        ]
+        key = complex_floor_key(transactions[0])
+
+        model = train_hedonic_model(
+            transactions,
+            max_iter=20,
+            random_state=42,
+            validation_months=2,
+            estimated_max_floors={key: 29},
+        )
+
+        self.assertEqual(model.estimated_max_floors[key], 29)
+
     def test_train_hedonic_model_adds_training_split_smoothed_target_encodings(self):
         transactions = []
         for idx, (district, lawd_cd, legal_dong, price_manwon) in enumerate(
@@ -343,6 +374,55 @@ class ModelingTests(unittest.TestCase):
         self.assertEqual(pipeline.row["district_target_count_log1p"], math.log1p(10))
         self.assertEqual(pipeline.row["legal_dong_target_log_price_smooth"], 22.0)
         self.assertEqual(pipeline.row["legal_dong_target_count_log1p"], math.log1p(5))
+
+    def test_global_calibration_log_offset_is_shrunk_and_capped(self):
+        class UnderpredictingPipeline:
+            def predict(self, rows):
+                return [float(row["target_log_price"]) - 0.08 for row in rows]
+
+        offset = global_calibration_log_offset(
+            UnderpredictingPipeline(),
+            [{"target_log_price": math.log(100_000_000)}, {"target_log_price": math.log(120_000_000)}],
+            shrinkage=0.25,
+            max_abs_log_offset=0.01,
+        )
+
+        self.assertAlmostEqual(offset, 0.01)
+
+    def test_predict_price_applies_global_calibration_log_offset(self):
+        class ConstantPipeline:
+            def predict_one(self, row):
+                return math.log(100_000_000)
+
+        model = TrainedModel(
+            pipeline=ConstantPipeline(),
+            first_month="202501",
+            common_apartments=set(),
+            metrics={},
+            residuals_by_floor_band={},
+            training_rows=1,
+            validation_rows=0,
+            global_calibration_log_offset=math.log(1.01),
+        )
+
+        prediction = predict_price(
+            model,
+            PredictionInput(
+                district="강남구",
+                lawd_cd="11680",
+                deal_year=2025,
+                deal_month=12,
+                deal_day=15,
+                legal_dong="역삼동",
+                apartment_name="보정단지",
+                property_type="apartment",
+                exclusive_area_m2=84.9,
+                floor=10,
+                build_year=2008,
+            ),
+        )
+
+        self.assertEqual(prediction["price_krw"], 101_000_000)
 
     def test_train_hedonic_model_reports_progress_events_in_order(self):
         events = []
